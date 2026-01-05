@@ -4,14 +4,16 @@ from app.features.chat.service import process_chat
 
 router = APIRouter()
 
+from app.core.deps import get_current_user
+from fastapi import Depends
+
 class ChatRequest(BaseModel):
-    user_id: str
     message: str
 
 @router.post("/send")
-async def send_message(request: ChatRequest):
+async def send_message(request: ChatRequest, user_id: str = Depends(get_current_user)):
     try:
-        response = await process_chat(request.user_id, request.message)
+        response = await process_chat(user_id, request.message)
         return {"reply": response}
     except Exception as e:
         # Log error in production

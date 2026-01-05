@@ -18,3 +18,4 @@ langchain-community
 # Utilities
 psycopg2-binary
 email-validator
+PyJWT

@@ -68,3 +68,29 @@ async def update_task_schedule(task_id: str, new_date: str):
         await session.refresh(task)
         
         return f"Success! Task '{task.title}' successfully moved to {new_date}."
+
+@tool
+async def create_new_task(user_id: str, title: str, scheduled_date: str):
+    """
+    Create a new task for the user.
+    scheduled_date format must be YYYY-MM-DD.
+    """
+    print(f"🛠️ TOOL CALLED: create_new_task for {user_id}: {title} on {scheduled_date}")
+    
+    try:
+        parsed_date = datetime.strptime(scheduled_date, "%Y-%m-%d")
+    except ValueError:
+        return "Error: Wrong date format. Use YYYY-MM-DD."
+
+    async with await get_session_context() as session:
+        new_task = Task(
+            user_id=user_id,
+            title=title,
+            scheduled_date=parsed_date,
+            status=ItemStatus.TODO
+        )
+        session.add(new_task)
+        await session.commit()
+        await session.refresh(new_task)
+        
+        return f"Success! New task '{new_task.title}' created for {scheduled_date}."

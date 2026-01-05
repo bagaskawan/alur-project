@@ -1,16 +1,16 @@
 from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from app.core.config import settings
-from app.features.chat.tools import get_user_schedule, update_task_schedule
+from app.features.chat.tools import get_user_schedule, update_task_schedule, create_new_task
 from app.models.all_models import Profile, ChatMessage, SenderType
 from sqlmodel import select
 from app.core.database import get_session # Dependency injection helper
 from sqlalchemy.orm import sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.database import engine
-from langchain.agents import create_tool_calling_agent, AgentExecutor
 import uuid
+import json
 
 # Setup Model & Tools
 llm = ChatGroq(
@@ -20,19 +20,20 @@ llm = ChatGroq(
 )
 
 # Bind Tools to LLM
-tools = [get_user_schedule, update_task_schedule]
+tools = [get_user_schedule, update_task_schedule, create_new_task]
+tool_map = {t.name: t for t in tools}
 llm_with_tools = llm.bind_tools(tools)
 
 async def process_chat(user_id: str, message: str):
     """
     Main function called by API Endpoint.
+    Manually handles tool calling loop to replace AgentExecutor.
     """
     # 1. Open Logic-Specific DB Session
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
     async with async_session() as session:
         # A. CONTEXT AWARENESS: Fetch User Profile
-        # Ensure user_id is UUID
         try:
             uuid_user_id = uuid.UUID(user_id)
         except ValueError:
@@ -55,7 +56,7 @@ async def process_chat(user_id: str, message: str):
             else:
                 chat_history.append(AIMessage(content=msg.content))
 
-        # C. SYSTEM PROMPT (Character Brain) - English Version
+        # C. SYSTEM PROMPT
         system_prompt = f"""You are ALUR, a personal productivity assistant for {user_name}.
         User Data: {persona_data}
         
@@ -64,34 +65,43 @@ async def process_chat(user_id: str, message: str):
         IMPORTANT: If the user asks about schedules/tasks, DO NOT HALLUCINATE. Use the 'get_user_schedule' tool to check real data.
         """
 
-        # D. ASSEMBLE PROMPT
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="history"),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
-        ])
+        # D. EXECUTE MANUAL LOOP
+        messages = [SystemMessage(content=system_prompt)] + chat_history + [HumanMessage(content=message)]
         
-        # E. EXECUTE CHAIN (Use Tool Calling Agent)
-        agent = create_tool_calling_agent(llm, tools, prompt)
-        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+        try:
+            # First LLM Call
+            response = await llm_with_tools.ainvoke(messages)
+            
+            # Check for tool calls
+            if response.tool_calls:
+                print(f"🛠️ AI requested tools: {response.tool_calls}")
+                messages.append(response) # Add assistant message with tool calls
+                
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call["name"]
+                    tool_args = tool_call["args"]
+                    
+                    if tool_name in tool_map:
+                        print(f"Running tool: {tool_name}")
+                        # Execute tool
+                        tool_result = await tool_map[tool_name].ainvoke(tool_args)
+                        messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_call["id"]))
+                    else:
+                        messages.append(ToolMessage(content=f"Error: Tool {tool_name} not found", tool_call_id=tool_call["id"]))
+                
+                # Second LLM Call (Generates final response based on tool outputs)
+                response = await llm_with_tools.ainvoke(messages)
+            
+            ai_reply = response.content
+            
+        except Exception as e:
+            print(f"❌ AI Error: {e}")
+            ai_reply = "Maaf, otak saya sedang loading lama. Coba lagi ya? (System Error)"
         
-        # "Run" Agent
-        # Note: We pass 'input' (user message) and 'history'.
-        # The agent will call tools if needed.
-        response = await agent_executor.ainvoke({
-            "input": message,
-            "history": chat_history
-        })
-        
-        ai_reply = response["output"]
-        
-        # F. SAVE NEW CHAT TO DB (Persistent Memory)
-        # Save User Message
+        # F. SAVE NEW CHAT TO DB
         user_msg_db = ChatMessage(user_id=uuid_user_id, sender=SenderType.USER, content=message)
         session.add(user_msg_db)
         
-        # Save AI Message
         ai_msg_db = ChatMessage(user_id=uuid_user_id, sender=SenderType.AI, content=ai_reply)
         session.add(ai_msg_db)
         
