@@ -1,0 +1,146 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.chat_messages (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  sender USER-DEFINED NOT NULL,
+  content text NOT NULL,
+  related_task_id uuid,
+  is_onboarding boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT chat_messages_pkey PRIMARY KEY (id),
+  CONSTRAINT chat_messages_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
+  CONSTRAINT chat_messages_related_task_id_fkey FOREIGN KEY (related_task_id) REFERENCES public.tasks(id)
+);
+CREATE TABLE public.focus_sessions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  task_id uuid,
+  start_time timestamp with time zone NOT NULL,
+  end_time timestamp with time zone,
+  duration_seconds integer,
+  focus_rating integer,
+  distractions_count integer DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT focus_sessions_pkey PRIMARY KEY (id),
+  CONSTRAINT focus_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
+  CONSTRAINT focus_sessions_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.tasks(id)
+);
+CREATE TABLE public.goals (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  cycle_id uuid,
+  title text NOT NULL,
+  description text,
+  priority text DEFAULT 'MAIN_QUEST'::text,
+  progress integer DEFAULT 0,
+  status USER-DEFINED DEFAULT 'IN_PROGRESS'::item_status,
+  parent_goal_id uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT goals_pkey PRIMARY KEY (id),
+  CONSTRAINT goals_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
+  CONSTRAINT goals_cycle_id_fkey FOREIGN KEY (cycle_id) REFERENCES public.growth_cycles(id),
+  CONSTRAINT goals_parent_goal_id_fkey FOREIGN KEY (parent_goal_id) REFERENCES public.goals(id)
+);
+CREATE TABLE public.growth_cycles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  title text NOT NULL,
+  type USER-DEFINED DEFAULT 'PROJECT_180'::cycle_type,
+  start_date date NOT NULL,
+  end_date date NOT NULL,
+  is_active boolean DEFAULT true,
+  theme text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT growth_cycles_pkey PRIMARY KEY (id),
+  CONSTRAINT growth_cycles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.habit_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  habit_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  completed_at timestamp with time zone DEFAULT now(),
+  notes text,
+  CONSTRAINT habit_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT habit_logs_habit_id_fkey FOREIGN KEY (habit_id) REFERENCES public.habits(id),
+  CONSTRAINT habit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.habits (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  goal_id uuid,
+  title text NOT NULL,
+  frequency jsonb,
+  time_of_day text,
+  current_streak integer DEFAULT 0,
+  best_streak integer DEFAULT 0,
+  is_archived boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT habits_pkey PRIMARY KEY (id),
+  CONSTRAINT habits_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
+  CONSTRAINT habits_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id)
+);
+CREATE TABLE public.harada_grids (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  goal_id uuid NOT NULL,
+  grid_content jsonb DEFAULT '{}'::jsonb,
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT harada_grids_pkey PRIMARY KEY (id),
+  CONSTRAINT harada_grids_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id)
+);
+CREATE TABLE public.journals (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  date date DEFAULT CURRENT_DATE,
+  type USER-DEFINED NOT NULL,
+  content text,
+  mood_rating integer,
+  wins_list jsonb,
+  challenges_list jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT journals_pkey PRIMARY KEY (id),
+  CONSTRAINT journals_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.memories (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  content text NOT NULL,
+  metadata jsonb,
+  embedding USER-DEFINED,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT memories_pkey PRIMARY KEY (id),
+  CONSTRAINT memories_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  email text,
+  full_name text,
+  avatar_url text,
+  ai_persona text DEFAULT 'FRIENDLY'::text,
+  work_start_time time without time zone DEFAULT '09:00:00'::time without time zone,
+  work_end_time time without time zone DEFAULT '17:00:00'::time without time zone,
+  personalization_data jsonb DEFAULT '{"behavior_type": [], "energy_profile": [], "learning_style": [], "challenge_response": [], "motivation_drivers": []}'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.tasks (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  goal_id uuid,
+  title text NOT NULL,
+  description text,
+  status USER-DEFINED DEFAULT 'TODO'::item_status,
+  scheduled_date date,
+  estimated_duration integer,
+  energy_required USER-DEFINED DEFAULT 'MEDIUM'::energy_level,
+  is_atomized boolean DEFAULT false,
+  due_date timestamp with time zone,
+  completed_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT tasks_pkey PRIMARY KEY (id),
+  CONSTRAINT tasks_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
+  CONSTRAINT tasks_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id)
+);

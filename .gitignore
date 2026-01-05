@@ -1,0 +1,16 @@
+# --- RAHASIA (WAJIB) ---
+.env
+*.env
+.DS_Store
+
+# --- PYTHON (Backend) ---
+backend/venv/
+backend/__pycache__/
+*.pyc
+
+# --- FLUTTER (Mobile) ---
+mobile/.dart_tool/
+mobile/.idea/
+mobile/build/
+mobile/ios/Flutter/App.framework
+mobile/ios/Flutter/Flutter.framework

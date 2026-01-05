@@ -1,0 +1,20 @@
+# Core Framework
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic-settings
+
+# Database & ORM
+sqlmodel
+asyncpg
+sqlalchemy
+
+# AI & Logic
+langchain
+langgraph
+langchain-groq
+langchain-community
+
+# Utilities
+psycopg2-binary
+email-validator
