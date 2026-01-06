@@ -54,7 +54,9 @@ class ChatMessage(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="profiles.id", nullable=False)
     
-    sender: SenderType = Field(sa_column=Column(Enum(SenderType)))
+    # Menggunakan String bukan Enum agar kompatibel dengan Supabase
+    # Validasi tetap bisa dilakukan di level Python dengan SenderType enum
+    sender: str = Field(default="USER")  # "USER" atau "AI"
     content: str
     
     related_task_id: Optional[uuid.UUID] = Field(default=None, foreign_key="tasks.id")

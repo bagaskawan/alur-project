@@ -18,7 +18,12 @@ class Settings(BaseSettings):
     @property
     def ASYNC_DATABASE_URL(self) -> str:
         if self.DATABASE_URL and self.DATABASE_URL.startswith("postgresql://"):
-            return self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+            # Convert to asyncpg format
+            url = self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+            # Add pgbouncer compatibility parameter
+            # Supabase uses pgbouncer which doesn't support prepared statements
+            separator = "&" if "?" in url else "?"
+            return f"{url}{separator}prepared_statement_cache_size=0"
         return self.DATABASE_URL
 
     class Config:

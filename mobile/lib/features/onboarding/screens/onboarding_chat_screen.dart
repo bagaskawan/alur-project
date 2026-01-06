@@ -18,7 +18,8 @@ class OnboardingChatScreen extends StatefulWidget {
   State<OnboardingChatScreen> createState() => _OnboardingChatScreenState();
 }
 
-class _OnboardingChatScreenState extends State<OnboardingChatScreen> {
+class _OnboardingChatScreenState extends State<OnboardingChatScreen>
+    with AutomaticKeepAliveClientMixin {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final OnboardingService _onboardingService = OnboardingService();
@@ -26,6 +27,10 @@ class _OnboardingChatScreenState extends State<OnboardingChatScreen> {
   bool _isTyping = false;
   bool _isLoading = false;
   bool _showGetStartedButton = false;
+
+  // Keep state alive when widget is temporarily removed (e.g., app backgrounded)
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -141,6 +146,7 @@ class _OnboardingChatScreenState extends State<OnboardingChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(

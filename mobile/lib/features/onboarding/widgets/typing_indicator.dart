@@ -57,28 +57,6 @@ class _TypingIndicatorState extends State<TypingIndicator>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // AI Avatar (at bottom, matching message style)
-          Container(
-            width: 36,
-            height: 36,
-            margin: const EdgeInsets.only(right: 8),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.primary,
-              border: Border.all(color: AppColors.accent, width: 2),
-            ),
-            child: ClipOval(
-              child: Image.asset(
-                'assets/images/ai_avatar.png',
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => const Icon(
-                  Icons.smart_toy_outlined,
-                  color: Colors.white,
-                  size: 18,
-                ),
-              ),
-            ),
-          ),
           // Typing dots container
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),

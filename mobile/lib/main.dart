@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/constants/app_colors.dart';
 import 'core/services/supabase_service.dart';
 import 'features/auth/screens/login_screen.dart';
-import 'features/chat/screens/chat_screen.dart';
+import 'features/home/screens/home_screen.dart';
 import 'features/onboarding/screens/onboarding_chat_screen.dart';
 import 'features/onboarding/services/onboarding_service.dart';
 
@@ -32,6 +32,13 @@ class AlurApp extends StatelessWidget {
         scaffoldBackgroundColor: AppColors.background,
         primaryColor: AppColors.primary,
         useMaterial3: true,
+        // Smooth page transitions
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          },
+        ),
       ),
       home: const AuthWrapper(),
     );
@@ -91,13 +98,30 @@ class _AuthWrapperState extends State<AuthWrapper> {
             );
           }
 
-          // Show onboarding if not completed
-          if (!_hasCompletedOnboarding) {
-            return OnboardingChatScreen(onComplete: _handleOnboardingComplete);
-          }
-
-          // Show main app
-          return const ChatScreen();
+          // Animated transition between screens
+          return AnimatedSwitcher(
+            duration: const Duration(milliseconds: 500),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, animation) {
+              return FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.05, 0),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
+                ),
+              );
+            },
+            child: _hasCompletedOnboarding
+                ? const HomeScreen(key: ValueKey('home'))
+                : OnboardingChatScreen(
+                    key: const ValueKey('onboarding'),
+                    onComplete: _handleOnboardingComplete,
+                  ),
+          );
         }
 
         // Recalculate onboarding status when auth changes

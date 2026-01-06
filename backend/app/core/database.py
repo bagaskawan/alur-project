@@ -7,7 +7,14 @@ from app.core.config import settings
 # echo=True berguna buat debugging (lihat query SQL di terminal)
 # Only create engine if DATABASE_URL is set to avoid errors during initial setup if env is missing
 if settings.DATABASE_URL:
-    engine = create_async_engine(settings.ASYNC_DATABASE_URL, echo=False, future=True)
+    # Supabase uses pgbouncer which doesn't support prepared statements
+    # We must disable statement cache for compatibility
+    engine = create_async_engine(
+        settings.ASYNC_DATABASE_URL, 
+        echo=False, 
+        future=True,
+        connect_args={"statement_cache_size": 0}  # Disable prepared statements for pgbouncer
+    )
 else:
     engine = None
     print("WARNING: DATABASE_URL not found in settings. Database connection will fail.")

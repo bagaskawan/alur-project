@@ -4,7 +4,7 @@
 CREATE TABLE public.chat_messages (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
-  sender USER-DEFINED NOT NULL,
+  sender character varying NOT NULL DEFAULT 'USER'::character varying,
   content text NOT NULL,
   related_task_id uuid,
   is_onboarding boolean DEFAULT false,

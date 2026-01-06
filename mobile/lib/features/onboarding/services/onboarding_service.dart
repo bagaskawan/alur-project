@@ -1,16 +1,13 @@
-import 'dart:convert';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:http/http.dart' as http;
+import '../../../core/services/api_service.dart';
 import '../../../core/services/supabase_service.dart';
 import '../models/chat_message.dart';
 
-/// Service for handling onboarding chat logic with GROQ AI integration
+/// Service for handling onboarding chat logic with Backend AI integration
+/// Now uses ApiService to communicate with FastAPI backend
 class OnboardingService {
-  static const String _groqApiUrl =
-      'https://api.groq.com/openai/v1/chat/completions';
-  static const String _model = 'llama-3.3-70b-versatile';
+  final ApiService _apiService = ApiService();
 
-  // Onboarding question stages
+  // Onboarding question stages (for tracking completion)
   static const List<String> _stages = [
     'greeting',
     'energy_profile',
@@ -46,210 +43,139 @@ class OnboardingService {
   };
 
   String get currentStage => _stages[_currentStageIndex];
-  bool get isComplete => _currentStageIndex >= _stages.length - 1;
+
+  /// Returns true only when ALL 5 personalization data fields have been filled
+  bool get isComplete {
+    final requiredFields = [
+      'energy_profile',
+      'motivation_drivers',
+      'challenge_response',
+      'learning_style',
+      'behavior_type',
+    ];
+    for (final field in requiredFields) {
+      if (_collectedData[field] == null || _collectedData[field]!.isEmpty) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Map<String, List<String>> get collectedData =>
       Map.unmodifiable(_collectedData);
 
-  /// Get the initial greeting message
+  /// Get the smart initial greeting message
   String getInitialMessage() {
-    return "Halo! Saya Alur. Mari kita sesuaikan aplikasi ini dengan gaya kerjamu. Kapan biasanya energi fokusmu paling tinggi?";
+    // 1. Cek Waktu (Time Awareness)
+    final hour = DateTime.now().hour;
+    String timeGreeting;
+    if (hour < 4) {
+      timeGreeting = "Halo pejuang malam"; // Lembur/Begadang
+    } else if (hour < 11) {
+      timeGreeting = "Pagi";
+    } else if (hour < 15) {
+      timeGreeting = "Siang";
+    } else if (hour < 18) {
+      timeGreeting = "Sore";
+    } else {
+      timeGreeting = "Malam";
+    }
+
+    // 2. Cek Metadata User dari Supabase (Auth Awareness)
+    final user = SupabaseService.currentUser;
+    // Metadata biasanya menyimpan 'full_name', 'name', atau 'preferred_username'
+    final metaName =
+        user?.userMetadata?['full_name'] ?? user?.userMetadata?['name'];
+
+    if (metaName != null && metaName.toString().isNotEmpty) {
+      // KASUS A: Nama User SUDAH ADA (misal login Google)
+      _userName = metaName.toString().split(' ').first; // Ambil nama depan
+
+      // PENTING: Kita harus majukan stage secara manual karena stage 'greeting'
+      // tujuannya cuma cari nama. Kalau nama sudah ada, kita loncat ke 'energy_profile'.
+      if (currentStage == 'greeting') {
+        _advanceStage(); // Loncat dari index 0 ke 1
+      }
+
+      return "$timeGreeting, $_userName! 👋\n\nAku Alur, asisten produktivitasmu. Biar aku bisa bantu lebih optimal, kapan biasanya kamu paling **produktif**? **Pagi**, **siang**, atau **malam**?";
+    } else {
+      // KASUS B: Nama User BELUM ADA (misal login Email biasa)
+      // Tetap di stage 0 ('greeting') untuk menunggu input nama
+      return "$timeGreeting! 👋\n\nAku Alur, asisten produktivitasmu. Btw, aku boleh panggil kamu siapa nih?";
+    }
   }
 
-  /// Process user message and generate AI response using GROQ
+  /// Process user message and generate AI response using Backend API
+  /// Falls back to mock responses if backend is unavailable
+  /// Process user message and generate AI response using Backend API
   Future<String> processUserMessage(String userMessage) async {
-    final groqApiKey = dotenv.env['GROQ_API_KEY'];
-
-    if (groqApiKey == null || groqApiKey.isEmpty) {
-      // Fallback to mock responses if no API key
-      return _getMockResponse(userMessage);
+    // 1. Special Local Handling for Greeting (Name Extraction)
+    if (currentStage == 'greeting') {
+      final name = _extractName(userMessage);
+      if (name != null && name.isNotEmpty) {
+        _userName = name;
+        // We still send to backend to get a nice reply
+      }
     }
 
     try {
-      final response = await _callGroqApi(userMessage, groqApiKey);
-      _extractAndStoreData(userMessage);
-      _advanceStage();
-      return response;
-    } catch (e) {
-      print('GROQ API Error: $e');
-      // Fallback to mock response on error
+      // 2. Call Backend API with Context
+      final response = await _apiService.post(
+        '/api/v1/chat/send',
+        body: {
+          'message': userMessage,
+          'mode': 'ONBOARDING',
+          'current_stage': currentStage, // 🧠 Send Context to Brain
+        },
+      );
+
+      if (response.isSuccess && response.data != null) {
+        final data = response.data;
+
+        // 3. Check AI Decision (JSON Logic)
+        // Explicit boolean check for null safety
+        bool isValid = data['is_valid_answer'] == true;
+
+        if (isValid) {
+          // AI says answer is valid!
+
+          if (currentStage == 'greeting') {
+            // For greeting, we just advance
+            _advanceStage();
+          } else {
+            // For data stages, backend extracts the data
+            List<String> extractedValues = [];
+            final rawData = data['extracted_data'];
+
+            if (rawData is String) {
+              extractedValues = [rawData];
+            } else if (rawData is List) {
+              extractedValues = List<String>.from(rawData);
+            }
+
+            if (extractedValues.isNotEmpty) {
+              // Update local state with data from Brain
+              _collectedData[currentStage] = extractedValues;
+
+              // Advance to next stage
+              _advanceStage();
+            }
+          }
+        }
+
+        // 4. Return AI Reply (Explanation or Next Question)
+        final reply = data['reply'] as String?;
+        return reply ?? "Maaf, ada kesalahan sistem.";
+      }
+
       return _getMockResponse(userMessage);
-    }
-  }
-
-  /// Call GROQ API for AI response
-  Future<String> _callGroqApi(String userMessage, String apiKey) async {
-    final systemPrompt = _buildSystemPrompt();
-    final contextPrompt = _buildContextPrompt(userMessage);
-
-    final response = await http.post(
-      Uri.parse(_groqApiUrl),
-      headers: {
-        'Authorization': 'Bearer $apiKey',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'model': _model,
-        'messages': [
-          {'role': 'system', 'content': systemPrompt},
-          {'role': 'user', 'content': contextPrompt},
-        ],
-        'max_tokens': 200,
-        'temperature': 0.7,
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data['choices'][0]['message']['content'] ??
-          _getMockResponse(userMessage);
-    } else {
-      throw Exception('GROQ API error: ${response.statusCode}');
-    }
-  }
-
-  String _buildSystemPrompt() {
-    return '''You are a friendly Growth Guide AI assistant helping a new user set up their profile in the ALUR productivity app. 
-Your role is to ask questions conversationally to understand the user's:
-- Work preferences and energy patterns
-- Motivation style
-- How they handle challenges
-- Learning preferences
-- Personality type (introvert/extrovert/ambivert)
-
-Keep responses SHORT (1-3 sentences max), warm, and conversational. Use emojis sparingly.
-Ask ONE question at a time. Don't explain the categories, just ask naturally.''';
-  }
-
-  String _buildContextPrompt(String userMessage) {
-    String context = 'Current stage: ${_stages[_currentStageIndex]}\n';
-    if (_userName != null) {
-      context += 'User\'s name: $_userName\n';
-    }
-    context += 'User just said: "$userMessage"\n\n';
-
-    switch (currentStage) {
-      case 'greeting':
-        context +=
-            'Extract their name and ask about what time of day they feel most energized and productive.';
-        break;
-      case 'energy_profile':
-        context +=
-            'Ask what motivates them most - achieving goals, earning rewards, social connection, or personal growth?';
-        break;
-      case 'motivation_drivers':
-        context +=
-            'Ask how they typically respond when facing a difficult challenge.';
-        break;
-      case 'challenge_response':
-        context +=
-            'Ask how they prefer to learn new things - through visuals, listening, hands-on practice, or reading?';
-        break;
-      case 'learning_style':
-        context +=
-            'Ask if they recharge better alone (introvert), with others (extrovert), or it depends (ambivert).';
-        break;
-      case 'behavior_type':
-        context +=
-            'Thank them warmly and let them know you\'ve personalized their experience. End with enthusiasm about their growth journey ahead!';
-        break;
-      default:
-        context += 'Wrap up the conversation and welcome them to the app.';
-    }
-
-    return context;
-  }
-
-  /// Extract data from user message and store with valid tags
-  void _extractAndStoreData(String userMessage) {
-    final lowerMessage = userMessage.toLowerCase();
-
-    switch (currentStage) {
-      case 'greeting':
-        // Extract name - simple extraction from greeting response
-        _userName = _extractName(userMessage);
-        break;
-      case 'energy_profile':
-        if (lowerMessage.contains('morning') ||
-            lowerMessage.contains('early') ||
-            lowerMessage.contains('pagi')) {
-          _collectedData['energy_profile'] = ['MORNING_LARK'];
-        } else if (lowerMessage.contains('night') ||
-            lowerMessage.contains('late') ||
-            lowerMessage.contains('malam')) {
-          _collectedData['energy_profile'] = ['NIGHT_OWL'];
-        } else {
-          _collectedData['energy_profile'] = ['FLEXIBLE'];
-        }
-        break;
-      case 'motivation_drivers':
-        if (lowerMessage.contains('goal') ||
-            lowerMessage.contains('achieve') ||
-            lowerMessage.contains('tujuan')) {
-          _collectedData['motivation_drivers'] = ['GOAL_ORIENTED'];
-        } else if (lowerMessage.contains('reward') ||
-            lowerMessage.contains('bonus') ||
-            lowerMessage.contains('hadiah')) {
-          _collectedData['motivation_drivers'] = ['REWARD_DRIVEN'];
-        } else if (lowerMessage.contains('team') ||
-            lowerMessage.contains('social') ||
-            lowerMessage.contains('teman')) {
-          _collectedData['motivation_drivers'] = ['SOCIAL_DRIVEN'];
-        } else {
-          _collectedData['motivation_drivers'] = ['GROWTH_FOCUSED'];
-        }
-        break;
-      case 'challenge_response':
-        if (lowerMessage.contains('fight') ||
-            lowerMessage.contains('head on') ||
-            lowerMessage.contains('langsung')) {
-          _collectedData['challenge_response'] = ['FIGHTER'];
-        } else if (lowerMessage.contains('plan') ||
-            lowerMessage.contains('think') ||
-            lowerMessage.contains('strategi')) {
-          _collectedData['challenge_response'] = ['STRATEGIC'];
-        } else if (lowerMessage.contains('team') ||
-            lowerMessage.contains('help') ||
-            lowerMessage.contains('kolaborasi')) {
-          _collectedData['challenge_response'] = ['COLLABORATOR'];
-        } else {
-          _collectedData['challenge_response'] = ['ADAPTIVE'];
-        }
-        break;
-      case 'learning_style':
-        if (lowerMessage.contains('visual') ||
-            lowerMessage.contains('see') ||
-            lowerMessage.contains('lihat')) {
-          _collectedData['learning_style'] = ['VISUAL'];
-        } else if (lowerMessage.contains('listen') ||
-            lowerMessage.contains('hear') ||
-            lowerMessage.contains('dengar')) {
-          _collectedData['learning_style'] = ['AUDITORY'];
-        } else if (lowerMessage.contains('hands') ||
-            lowerMessage.contains('practice') ||
-            lowerMessage.contains('praktek')) {
-          _collectedData['learning_style'] = ['KINESTHETIC'];
-        } else {
-          _collectedData['learning_style'] = ['READING_WRITING'];
-        }
-        break;
-      case 'behavior_type':
-        if (lowerMessage.contains('alone') ||
-            lowerMessage.contains('introvert') ||
-            lowerMessage.contains('sendiri')) {
-          _collectedData['behavior_type'] = ['INTROVERT'];
-        } else if (lowerMessage.contains('people') ||
-            lowerMessage.contains('extrovert') ||
-            lowerMessage.contains('orang')) {
-          _collectedData['behavior_type'] = ['EXTROVERT'];
-        } else {
-          _collectedData['behavior_type'] = ['AMBIVERT'];
-        }
-        break;
+    } catch (e) {
+      print('Backend API Error: $e');
+      return _getMockResponse(userMessage);
     }
   }
 
   String? _extractName(String message) {
-    // Simple name extraction - get first capitalized word or word after common patterns
     final patterns = [
       RegExp(
         r"(?:name is|call me|i'm|nama saya|panggil saya)\s+(\w+)",
@@ -287,33 +213,31 @@ Ask ONE question at a time. Don't explain the categories, just ask naturally.'''
     }
   }
 
-  /// Fallback mock responses when GROQ is unavailable
+  /// Fallback mock responses when backend is unavailable
   String _getMockResponse(String userMessage) {
-    _extractAndStoreData(userMessage);
-
     switch (currentStage) {
       case 'greeting':
-        final name = _extractName(userMessage) ?? 'there';
+        final name = _extractName(userMessage) ?? 'kamu';
         _userName = name;
         _advanceStage();
-        return 'Nice to meet you, $name! 🌟\n\nWhat time of day do you feel most energized and productive?';
+        return 'Hai $name! 👋\n\nOke, jadi kapan biasanya kamu paling **produktif**? **Pagi**, **siang**, atau **malam**?';
       case 'energy_profile':
         _advanceStage();
-        return 'Interesting! What motivates you most to get things done - achieving goals, earning rewards, connecting with others, or personal growth?';
+        return 'Sip! Terus nih, apa **tantangan produktivitas** terbesar yang lagi kamu hadapi sekarang?';
       case 'motivation_drivers':
         _advanceStage();
-        return 'When you face a tough challenge, how do you usually respond? Do you tackle it head-on, strategize first, seek help, or adapt as you go?';
+        return 'I see! Kalo soal pengingat, kamu lebih suka cara yang **lembut** atau **tegas** nih?';
       case 'challenge_response':
         _advanceStage();
-        return 'How do you prefer to learn new things? Through visuals, listening, hands-on practice, or reading?';
+        return 'Noted! Last question - kamu lebih suka belajar hal baru lewat **visual**, **dengerin**, **praktek langsung**, atau **baca**?';
       case 'learning_style':
         _advanceStage();
-        return 'Last question! Do you recharge better by spending time alone, with others, or does it depend on the situation?';
+        return 'Satu lagi! Kamu recharge-nya lebih enak **sendirian**, **sama orang lain**, atau **tergantung mood**?';
       case 'behavior_type':
         _advanceStage();
-        return 'Awesome, ${_userName ?? 'friend'}! 🎉\n\nI\'ve personalized your ALUR experience based on what you shared. You\'re all set to start your growth journey!\n\nTap "Get Started" below to continue.';
+        return 'Mantap, ${_userName ?? 'kamu'}! 🎉\n\nAku udah personalisasi pengalaman ALUR-mu. Yuk mulai perjalanan produktifmu!\n\nTap **"Get Started"** di bawah ya.';
       default:
-        return 'Thanks for sharing! Let\'s get you started on your growth journey! 🚀';
+        return 'Thanks udah sharing! Yuk langsung gas! 🚀';
     }
   }
 
@@ -322,16 +246,32 @@ Ask ONE question at a time. Don't explain the categories, just ask naturally.'''
     final userId = SupabaseService.currentUser?.id;
     if (userId == null) return;
 
+    // Debug print: Show ALL collected persona data before saving
+    print('\n' + '=' * 60);
+    print('🔄 SAVING PERSONALIZATION DATA TO SUPABASE');
+    print('=' * 60);
+    print('User ID: $userId');
+    print('User Name: $_userName');
+    print('');
+    print('📊 PERSONA DATA:');
+    _collectedData.forEach((key, value) {
+      print('   $key: $value');
+    });
+    print('=' * 60 + '\n');
+
     try {
       await SupabaseService.client
           .from('profiles')
           .update({
             'personalization_data': _collectedData,
+            'full_name': _userName,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', userId);
+
+      print('✅ Personalization data saved successfully!');
     } catch (e) {
-      print('Error saving personalization data: $e');
+      print('❌ Error saving personalization data: $e');
       rethrow;
     }
   }
