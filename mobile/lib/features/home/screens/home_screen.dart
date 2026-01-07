@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
+import '../../chat/screens/chat_screen.dart'; // Pastikan import ini ada
+import '../../goals/screens/goals_screen.dart';
 
-/// Home/Dashboard screen that displays user profile and personalization data
-/// Shown after onboarding is completed
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -11,176 +11,118 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
-
-  Map<String, dynamic>? _personalizationData;
+class _HomeScreenState extends State<HomeScreen> {
   String? _userName;
-  bool _isLoading = true;
+  int _selectedNavIndex = 0;
+
+  // Simulasi Data (Nanti diganti dengan data dari API / Database)
+  // Ubah list ini jadi kosong [] untuk mengetes tampilan User Baru
+  final List<Map<String, dynamic>> _tasks = [
+    // {
+    //   'title': 'Morning Briefing',
+    //   'time': '09:00 - 09:30',
+    //   'isDone': true,
+    //   'color': 'green',
+    // },
+  ];
+
+  // Cek apakah user punya data atau masih baru
+  bool get _isNewUser => _tasks.isEmpty;
 
   @override
   void initState() {
     super.initState();
-    _setupAnimations();
-    _loadUserData();
+    _loadUserName();
   }
 
-  void _setupAnimations() {
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
-      ),
-    );
-
-    _slideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _animationController,
-            curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
-          ),
-        );
-  }
-
-  Future<void> _loadUserData() async {
-    try {
-      final user = SupabaseService.currentUser;
-      if (user != null) {
-        // Get user name from metadata
-        final metaName =
-            user.userMetadata?['full_name'] ??
-            user.userMetadata?['name'] ??
-            user.email?.split('@').first ??
-            'User';
-
-        // Fetch personalization data from Supabase
-        final response = await SupabaseService.client
-            .from('profiles')
-            .select('personalization_data, full_name')
-            .eq('id', user.id)
-            .single();
-
-        setState(() {
-          _userName =
-              response['full_name'] ?? metaName.toString().split(' ').first;
-          _personalizationData =
-              response['personalization_data'] as Map<String, dynamic>?;
-          _isLoading = false;
-        });
-
-        _animationController.forward();
-      }
-    } catch (e) {
-      setState(() => _isLoading = false);
-      _animationController.forward();
+  void _loadUserName() {
+    final user = SupabaseService.currentUser;
+    if (user != null) {
+      final metaName =
+          user.userMetadata?['full_name'] ??
+          user.userMetadata?['name'] ??
+          user.email?.split('@').first ??
+          'User';
+      setState(() => _userName = metaName.toString().split(' ').first);
     }
   }
 
-  Future<void> _handleLogout() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          'Logout',
-          style: TextStyle(color: AppColors.textPrimary),
-        ),
-        content: const Text(
-          'Yakin mau logout?',
-          style: TextStyle(color: AppColors.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Batal'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      await SupabaseService.signOut();
-    }
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good Morning';
+    if (hour < 17) return 'Good Afternoon';
+    return 'Good Evening';
   }
 
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
+  // --- NAVIGATION LOGIC ---
+  void _openDailyChat() {
+    // Membuka Chat dengan Mode DAILY
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ChatScreen(initialMode: 'DAILY')),
+    );
+  }
+
+  void _openGoalSetup() {
+    // Membuka Goals Screen untuk User Baru
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const GoalsScreen()),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: AppColors.background,
-        body: Center(
-          child: CircularProgressIndicator(color: AppColors.primary),
-        ),
-      );
-    }
-
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: SlideTransition(
-            position: _slideAnimation,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header with greeting and logout
-                  _buildHeader(),
-                  const SizedBox(height: 32),
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    _buildHeader(),
+                    const SizedBox(height: 24),
 
-                  // Welcome card
-                  _buildWelcomeCard(),
-                  const SizedBox(height: 24),
+                    // LOGIC SWITCH: Tampilkan kartu beda buat user baru
+                    if (_isNewUser) _buildNewUserHero() else _buildFocusHero(),
 
-                  // Personalization data cards
-                  _buildSectionTitle('Profil Personalisasi'),
-                  const SizedBox(height: 16),
-                  _buildPersonalizationCards(),
-                ],
+                    const SizedBox(height: 20),
+
+                    // PORTAL KE CHAT (Klik Bar ini langsung masuk Chat Room)
+                    GestureDetector(
+                      onTap: _openDailyChat,
+                      child: _buildAICommandBar(),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // LOGIC SWITCH: Timeline vs Empty State
+                    if (_isNewUser)
+                      _buildEmptyStatePlaceholder()
+                    else
+                      _buildTimeline(),
+
+                    const SizedBox(height: 24),
+                    _buildHabitsSection(),
+                    const SizedBox(height: 100),
+                  ],
+                ),
               ),
             ),
-          ),
+          ],
         ),
       ),
+      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
+  // ... (Header Widget sama seperti sebelumnya) ...
   Widget _buildHeader() {
-    final hour = DateTime.now().hour;
-    String greeting;
-    if (hour < 4) {
-      greeting = "Halo pejuang malam";
-    } else if (hour < 11) {
-      greeting = "Selamat pagi";
-    } else if (hour < 15) {
-      greeting = "Selamat siang";
-    } else if (hour < 18) {
-      greeting = "Selamat sore";
-    } else {
-      greeting = "Selamat malam";
-    }
-
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -188,41 +130,399 @@ class _HomeScreenState extends State<HomeScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              greeting,
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.textSecondary.withOpacity(0.8),
+              '${_getGreeting()}, ${_userName ?? 'User'}',
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: AppColors.dark,
               ),
             ),
             const SizedBox(height: 4),
             Text(
-              _userName ?? 'User',
+              "Let's conquer the day.",
               style: const TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
+                fontSize: 14,
+                color: AppColors.textSecondary,
               ),
             ),
           ],
         ),
-        // Logout button
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: _handleLogout,
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              padding: const EdgeInsets.all(12),
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: AppColors.pastelYellow,
+            shape: BoxShape.circle,
+            border: Border.all(color: AppColors.dark, width: 2),
+          ),
+          child: const Icon(Icons.person, color: AppColors.dark),
+        ),
+      ],
+    );
+  }
+
+  // === HERO CARD 1: MAIN FOCUS (Untuk User Lama) ===
+  Widget _buildFocusHero() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.pastelPurple,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.4),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Text(
+              'MAIN FOCUS',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.dark,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Complete Backend\nIntegration',
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              color: AppColors.dark,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.access_time,
+                    size: 18,
+                    color: AppColors.dark.withOpacity(0.7),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '10:00 - 12:00',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.dark.withOpacity(0.8),
+                    ),
+                  ),
+                ],
+              ),
+              ElevatedButton(
+                onPressed: () {}, // Nanti ke Timer Screen
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.dark,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('Start Focus'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // === HERO CARD 2: NEW USER CALL TO ACTION ===
+  Widget _buildNewUserHero() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.pastelGreen, // Ganti warna jadi Hijau (Fresh)
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AppColors.dark,
+          width: 1.5,
+        ), // Tambah border biar tegas
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Start Your Journey 🚀',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: AppColors.dark,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            "You haven't set your big goals yet. Let's define your 'North Star' to get started.",
+            style: TextStyle(fontSize: 14, color: AppColors.dark),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _openGoalSetup, // KE CHAT MODE GOALS
+              icon: const Icon(Icons.map, size: 18),
+              label: const Text('Create My First Goal'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.dark,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // === AI COMMAND BAR (Sekarang Tappable) ===
+  Widget _buildAICommandBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: AppColors.dark, width: 1.5),
+        boxShadow: [
+          // Sedikit shadow biar kelihatan bisa diklik
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: const BoxDecoration(
+              color: AppColors.pastelYellow,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.auto_awesome,
+              size: 18,
+              color: AppColors.dark,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Chat with Alur...', // Teks lebih simple
+              style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+            ),
+          ),
+          const Icon(Icons.send_rounded, color: AppColors.dark, size: 20),
+        ],
+      ),
+    );
+  }
+
+  // === EMPTY STATE PLACEHOLDER ===
+  Widget _buildEmptyStatePlaceholder() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.withOpacity(0.2)),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.calendar_today_outlined,
+            size: 40,
+            color: AppColors.textSecondary.withOpacity(0.5),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            "No tasks for today",
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            "Chat with Alur to schedule your day!",
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary.withOpacity(0.7),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ... (Sisa fungsi Timeline & Habits sama persis, copy paste saja dari kode lamamu) ...
+  // === TIMELINE TASKS ===
+  Widget _buildTimeline() {
+    return Column(
+      children: _tasks.asMap().entries.map((entry) {
+        final task = entry.value;
+        return _buildTaskItem(task);
+      }).toList(),
+    );
+  }
+
+  Widget _buildTaskItem(Map<String, dynamic> task) {
+    Color bgColor;
+    switch (task['color']) {
+      case 'green':
+        bgColor = AppColors.pastelGreen;
+        break;
+      case 'blue':
+        bgColor = AppColors.pastelBlue;
+        break;
+      default:
+        bgColor = Colors.white;
+    }
+
+    final isDone = task['isDone'] == true;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Timeline dot and line
+        Column(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
               decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade200),
+                color: isDone ? AppColors.dark : Colors.transparent,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.dark, width: 1.5),
               ),
-              child: const Icon(
-                Icons.logout_rounded,
-                color: AppColors.textSecondary,
-                size: 22,
-              ),
+            ),
+            Container(
+              width: 1.5,
+              height: 80,
+              color: AppColors.dark.withOpacity(0.2),
+            ),
+          ],
+        ),
+        const SizedBox(width: 16),
+        // Task card
+        Expanded(
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(16),
+              border: task['color'] == 'white'
+                  ? Border.all(color: AppColors.dark, width: 1.5)
+                  : null,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              task['title'],
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.dark,
+                                decoration: isDone
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                              ),
+                            ),
+                          ),
+                          if (task['tag'] != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.dark.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                task['tag'],
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      if (task['subtitle'] != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          task['subtitle'],
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.access_time,
+                            size: 14,
+                            color: AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            task['time'],
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (isDone)
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: const BoxDecoration(
+                      color: AppColors.dark,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.check,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                  ),
+                if (task['color'] == 'blue')
+                  Icon(
+                    Icons.restaurant,
+                    size: 28,
+                    color: AppColors.dark.withOpacity(0.5),
+                  ),
+              ],
             ),
           ),
         ),
@@ -230,210 +530,114 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildWelcomeCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.primary.withOpacity(0.9),
-            AppColors.accent.withOpacity(0.8),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withOpacity(0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.rocket_launch_rounded,
-                  color: Colors.white,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'ALUR',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                  letterSpacing: 2,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Onboarding selesai! 🎉',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Kamu sudah siap memulai perjalanan produktivitasmu bersama ALUR.',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.white.withOpacity(0.9),
-              height: 1.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // === HABITS SECTION ===
+  final List<Map<String, dynamic>> _habits = [
+    {'icon': Icons.water_drop, 'label': 'Water', 'isDone': true},
+    {'icon': Icons.menu_book, 'label': 'Read', 'isDone': true},
+    {'icon': Icons.self_improvement, 'label': 'Stretch', 'isDone': false},
+    {'icon': Icons.directions_walk, 'label': 'Walk', 'isDone': false},
+  ];
 
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.w600,
-        color: AppColors.textPrimary,
-      ),
-    );
-  }
-
-  Widget _buildPersonalizationCards() {
-    final data = _personalizationData ?? {};
-
-    final items = [
-      _PersonalizationItem(
-        icon: Icons.wb_sunny_rounded,
-        title: 'Waktu Produktif',
-        key: 'energy_profile',
-        color: Colors.orange,
-      ),
-      _PersonalizationItem(
-        icon: Icons.flag_rounded,
-        title: 'Motivasi',
-        key: 'motivation_drivers',
-        color: Colors.green,
-      ),
-      _PersonalizationItem(
-        icon: Icons.psychology_rounded,
-        title: 'Response Tantangan',
-        key: 'challenge_response',
-        color: Colors.blue,
-      ),
-      _PersonalizationItem(
-        icon: Icons.school_rounded,
-        title: 'Gaya Belajar',
-        key: 'learning_style',
-        color: Colors.purple,
-      ),
-      _PersonalizationItem(
-        icon: Icons.person_rounded,
-        title: 'Tipe Kepribadian',
-        key: 'behavior_type',
-        color: Colors.teal,
-      ),
-    ];
-
+  Widget _buildHabitsSection() {
     return Column(
-      children: items.asMap().entries.map((entry) {
-        final index = entry.key;
-        final item = entry.value;
-        final value = data[item.key];
-        final displayValue = value is List && value.isNotEmpty
-            ? value.first.toString().replaceAll('_', ' ')
-            : (value?.toString() ?? 'Belum diisi');
-
-        return TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0, end: 1),
-          duration: Duration(milliseconds: 400 + (index * 100)),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, child) {
-            return Opacity(
-              opacity: value,
-              child: Transform.translate(
-                offset: Offset(0, 20 * (1 - value)),
-                child: child,
-              ),
-            );
-          },
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'HABITS',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textSecondary,
+            letterSpacing: 1,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: _habits.map((habit) {
+            final isDone = habit['isDone'] == true;
+            return Column(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  width: 56,
+                  height: 56,
                   decoration: BoxDecoration(
-                    color: item.color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    color: isDone ? AppColors.pastelGreen : Colors.transparent,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isDone
+                          ? AppColors.pastelGreen
+                          : AppColors.textSecondary.withOpacity(0.3),
+                      width: 1.5,
+                    ),
                   ),
-                  child: Icon(item.icon, color: item.color, size: 22),
+                  child: Icon(
+                    habit['icon'],
+                    color: isDone ? AppColors.dark : AppColors.textSecondary,
+                  ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.title,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary.withOpacity(0.7),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        displayValue,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                    ],
+                const SizedBox(height: 6),
+                Text(
+                  habit['label'],
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textSecondary,
                   ),
                 ),
               ],
-            ),
-          ),
-        );
-      }).toList(),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
-}
 
-class _PersonalizationItem {
-  final IconData icon;
-  final String title;
-  final String key;
-  final Color color;
+  // === BOTTOM NAVIGATION ===
+  Widget _buildBottomNav() {
+    return Container(
+      margin: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.dark,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildNavItem(Icons.home, 0),
+          _buildNavItem(Icons.all_inclusive, 1),
+          _buildNavItem(Icons.timer, 2, isCenter: true),
+          _buildNavItem(Icons.flag, 3),
+          _buildNavItem(Icons.person, 4),
+        ],
+      ),
+    );
+  }
 
-  _PersonalizationItem({
-    required this.icon,
-    required this.title,
-    required this.key,
-    required this.color,
-  });
+  Widget _buildNavItem(IconData icon, int index, {bool isCenter = false}) {
+    final isSelected = _selectedNavIndex == index;
+
+    if (isCenter) {
+      return GestureDetector(
+        onTap: () => setState(() => _selectedNavIndex = index),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: const BoxDecoration(
+            color: AppColors.pastelPurple,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.timer, color: AppColors.dark, size: 24),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () => setState(() => _selectedNavIndex = index),
+      child: Icon(
+        icon,
+        color: isSelected ? Colors.white : Colors.white.withOpacity(0.5),
+        size: 24,
+      ),
+    );
+  }
 }

@@ -8,6 +8,7 @@ class ChatMessage {
   final MessageSender sender;
   final DateTime timestamp;
   final bool isOnboarding;
+  final List<String>? options; // Choice chips for AI messages
 
   ChatMessage({
     required this.id,
@@ -15,6 +16,7 @@ class ChatMessage {
     required this.sender,
     DateTime? timestamp,
     this.isOnboarding = true,
+    this.options,
   }) : timestamp = timestamp ?? DateTime.now();
 
   /// Create a user message
@@ -26,12 +28,13 @@ class ChatMessage {
     );
   }
 
-  /// Create an AI message
-  factory ChatMessage.ai(String content) {
+  /// Create an AI message with optional choice chips
+  factory ChatMessage.ai(String content, {List<String>? options}) {
     return ChatMessage(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       content: content,
       sender: MessageSender.ai,
+      options: options,
     );
   }
 

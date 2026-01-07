@@ -18,6 +18,20 @@ class OnboardingService {
     'completion',
   ];
 
+  // Choice chips for each stage (friendly labels)
+  static const Map<String, List<String>> stageChips = {
+    'energy_profile': ['Pagi ☀️', 'Malam 🌙', 'Fleksibel ⚡'],
+    'motivation_drivers': ['Target 🎯', 'Hadiah 🎁', 'Teman 👥', 'Belajar 📈'],
+    'challenge_response': [
+      'Langsung 💪',
+      'Strategi 🧠',
+      'Kolaborasi 🤝',
+      'Adaptif 🔄',
+    ],
+    'learning_style': ['Visual 👀', 'Audio 🎧', 'Praktek ✋', 'Baca/Tulis 📖'],
+    'behavior_type': ['Sendiri 🧘', 'Ramai 🎉', 'Tergantung ⚖️'],
+  };
+
   // Valid tags for each personalization category
   static const Map<String, List<String>> validTags = {
     'behavior_type': ['INTROVERT', 'EXTROVERT', 'AMBIVERT'],
@@ -63,6 +77,11 @@ class OnboardingService {
 
   Map<String, List<String>> get collectedData =>
       Map.unmodifiable(_collectedData);
+
+  /// Get choice chips for the current stage (returns null if no chips)
+  List<String>? getOptionsForCurrentStage() {
+    return stageChips[currentStage];
+  }
 
   /// Get the smart initial greeting message
   String getInitialMessage() {

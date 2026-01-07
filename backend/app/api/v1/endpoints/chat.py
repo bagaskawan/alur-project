@@ -3,11 +3,13 @@ from pydantic import BaseModel
 from typing import Optional, Literal
 from app.features.chat.service import process_chat
 from app.core.deps import get_current_user
+from app.core.database import get_session  # Import session dependency
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 router = APIRouter()
 
 # Mode types for AI "persona switching"
-ChatMode = Literal["ONBOARDING", "GOALS_SETUP", "DAILY"]
+ChatMode = Literal["ONBOARDING", "GOALS_SETUP", "GOAL_ENHANCE", "DAILY"]
 
 class ChatRequest(BaseModel):
     message: str
@@ -15,14 +17,22 @@ class ChatRequest(BaseModel):
     current_stage: Optional[str] = None # For onboarding context
 
 @router.post("/send")
-async def send_message(request: ChatRequest, user_id: str = Depends(get_current_user)):
+async def send_message(
+    request: ChatRequest, 
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)  # Inject session
+):
     try:
-        response = await process_chat(user_id, request.message, request.mode, request.current_stage)
-        # Check if response is a dict (JSON), otherwise return as string in 'reply'
-        if isinstance(response, dict):
-            return response
-        return {"reply": response}
+        # Pass session as first argument
+        response = await process_chat(
+            session=session,
+            user_id=user_id, 
+            message=request.message, 
+            mode=request.mode, 
+            current_stage=request.current_stage
+        )
+        return response  # Service now always returns dict
     except Exception as e:
-        # Log error in production
         print(f"Error in chat endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+

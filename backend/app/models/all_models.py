@@ -70,5 +70,7 @@ class Profile(SQLModel, table=True):
 
     id: uuid.UUID = Field(primary_key=True)
     full_name: Optional[str] = None
+    preferred_language: str = Field(default="id")  # 'id' = Indonesian, 'en' = English
     # JSONB field untuk personalisasi
     personalization_data: Dict[str, Any] = Field(default={}, sa_column=Column(JSONB))
+

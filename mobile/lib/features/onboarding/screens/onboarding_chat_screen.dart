@@ -200,6 +200,10 @@ class _OnboardingChatScreenState extends State<OnboardingChatScreen>
           // Get Started button (shown when onboarding is complete)
           if (_showGetStartedButton) _buildGetStartedButton(),
 
+          // Choice chips (shown when AI is waiting for response)
+          if (!_showGetStartedButton && !_isLoading && !_isTyping)
+            _buildChoiceChips(),
+
           // Input field (hidden when showing Get Started button)
           if (!_showGetStartedButton)
             ChatInputField(
@@ -208,6 +212,47 @@ class _OnboardingChatScreenState extends State<OnboardingChatScreen>
               isLoading: _isLoading,
             ),
         ],
+      ),
+    );
+  }
+
+  /// Build horizontal scrollable choice chips
+  Widget _buildChoiceChips() {
+    final options = _onboardingService.getOptionsForCurrentStage();
+    if (options == null || options.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: Colors.grey.shade100)),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: options.map((option) {
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ActionChip(
+                label: Text(option),
+                labelStyle: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+                backgroundColor: AppColors.background,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(color: Colors.grey.shade300),
+                ),
+                onPressed: () {
+                  // Send chip text as user message
+                  _textController.text = option;
+                  _handleSend();
+                },
+              ),
+            );
+          }).toList(),
+        ),
       ),
     );
   }

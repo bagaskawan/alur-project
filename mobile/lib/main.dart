@@ -6,6 +6,8 @@ import 'core/services/supabase_service.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/home/screens/home_screen.dart';
 import 'features/onboarding/screens/onboarding_chat_screen.dart';
+import 'features/goals/screens/goals_screen.dart';
+import 'features/onboarding/screens/language_selection_screen.dart';
 import 'features/onboarding/services/onboarding_service.dart';
 
 void main() async {
@@ -54,33 +56,64 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
-  bool _isCheckingOnboarding = true;
+  bool _isLoading = true;
+  bool _hasSelectedLanguage = false;
   bool _hasCompletedOnboarding = false;
 
   @override
   void initState() {
     super.initState();
-    _checkOnboardingStatus();
+    _checkUserStatus();
   }
 
-  Future<void> _checkOnboardingStatus() async {
+  Future<void> _checkUserStatus() async {
     if (SupabaseService.isLoggedIn) {
-      final completed = await OnboardingService.hasCompletedOnboarding();
-      if (mounted) {
-        setState(() {
-          _hasCompletedOnboarding = completed;
-          _isCheckingOnboarding = false;
-        });
+      final userId = SupabaseService.currentUser?.id;
+      if (userId != null) {
+        try {
+          // Check profile for language preference
+          final profile = await SupabaseService.client
+              .from('profiles')
+              .select('preferred_language')
+              .eq('id', userId)
+              .single();
+
+          final hasLang =
+              profile['preferred_language'] != null &&
+              profile['preferred_language'].toString().isNotEmpty;
+
+          // Check onboarding status
+          final completed = await OnboardingService.hasCompletedOnboarding();
+
+          if (mounted) {
+            setState(() {
+              _hasSelectedLanguage = hasLang;
+              _hasCompletedOnboarding = completed;
+              _isLoading = false;
+            });
+          }
+        } catch (e) {
+          // Profile might not exist yet
+          if (mounted) {
+            setState(() {
+              _hasSelectedLanguage = false;
+              _hasCompletedOnboarding = false;
+              _isLoading = false;
+            });
+          }
+        }
       }
     } else {
-      setState(() => _isCheckingOnboarding = false);
+      setState(() => _isLoading = false);
     }
   }
 
+  void _handleLanguageComplete() {
+    setState(() => _hasSelectedLanguage = true);
+  }
+
   void _handleOnboardingComplete() {
-    setState(() {
-      _hasCompletedOnboarding = true;
-    });
+    setState(() => _hasCompletedOnboarding = true);
   }
 
   @override
@@ -90,8 +123,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
       builder: (context, snapshot) {
         // Check if user is logged in
         if (SupabaseService.isLoggedIn) {
-          // Show loading while checking onboarding status
-          if (_isCheckingOnboarding) {
+          // Show loading
+          if (_isLoading) {
             return const Scaffold(
               backgroundColor: AppColors.background,
               body: Center(child: CircularProgressIndicator()),
@@ -115,24 +148,41 @@ class _AuthWrapperState extends State<AuthWrapper> {
                 ),
               );
             },
-            child: _hasCompletedOnboarding
-                ? const HomeScreen(key: ValueKey('home'))
-                : OnboardingChatScreen(
-                    key: const ValueKey('onboarding'),
-                    onComplete: _handleOnboardingComplete,
-                  ),
+            child: _getScreen(),
           );
         }
 
-        // Recalculate onboarding status when auth changes
+        // Recalculate status when auth changes
         if (snapshot.hasData &&
             snapshot.data?.event == AuthChangeEvent.signedIn) {
-          _isCheckingOnboarding = true;
-          _checkOnboardingStatus();
+          _isLoading = true;
+          _checkUserStatus();
         }
 
         return const LoginScreen();
       },
     );
+  }
+
+  Widget _getScreen() {
+    // === TEMPORARY: Langsung ke GoalsScreen untuk testing ===
+    return const GoalsScreen(key: ValueKey('goals'));
+
+    // === ORIGINAL CODE (uncomment setelah testing) ===
+    // if (_hasCompletedOnboarding) {
+    //   return const HomeScreen(key: ValueKey('home'));
+    // }
+    //
+    // if (!_hasSelectedLanguage) {
+    //   return LanguageSelectionScreen(
+    //     key: const ValueKey('language'),
+    //     onComplete: _handleLanguageComplete,
+    //   );
+    // }
+    //
+    // return OnboardingChatScreen(
+    //   key: const ValueKey('onboarding'),
+    //   onComplete: _handleOnboardingComplete,
+    // );
   }
 }

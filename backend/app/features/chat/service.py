@@ -1,20 +1,17 @@
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from app.core.config import settings
 from app.features.chat.tools import get_user_schedule, update_task_schedule, create_new_task
 from app.models.all_models import Profile, ChatMessage, SenderType
 from sqlmodel import select
-from app.core.database import get_session # Dependency injection helper
-from sqlalchemy.orm import sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
-from app.core.database import engine
 import uuid
 import json
+import copy  # Import copy for safe JSON update
 
 # Setup Model & Tools
 llm = ChatGroq(
-    temperature=0.3, # Slightly creative but tool-compliant
+    temperature=0.3,
     model_name=settings.GROQ_MODEL,
     api_key=settings.GROQ_API_KEY
 )
@@ -24,262 +21,263 @@ tools = [get_user_schedule, update_task_schedule, create_new_task]
 tool_map = {t.name: t for t in tools}
 llm_with_tools = llm.bind_tools(tools)
 
-def get_system_prompt(mode: str, user_name: str, persona_data: dict, current_stage: str = None) -> str:
+
+def get_system_prompt(mode: str, user_name: str, persona_data: dict, current_stage: str = None, language: str = "id") -> str:
     """
     Returns the appropriate system prompt based on the chat mode.
-    Each mode defines a different "persona" for the AI.
+    Language: 'id' = Indonesian, 'en' = English
     """
-    
     if mode == "ONBOARDING":
-        # Define valid options for each stage
-        valid_options = {
-            "energy_profile": "MORNING_LARK (pagi), NIGHT_OWL (malam), FLEXIBLE (keduanya/fleksibel)",
-            "motivation_drivers": "GOAL (tujuan/target), REWARD (hadiah/bonus), SOCIAL (teman/lingkungan), GROWTH (belajar/berkembang)",
-            "challenge_response": "FIGHTER (langsung hajar), STRATEGIC (susun strategi), COLLABORATOR (minta bantuan), ADAPTIVE (lihat situasi)",
-            "learning_style": "VISUAL (gambar/video), AUDITORY (suara/podcast), KINESTHETIC (praktek), READING_WRITING (baca/tulis)",
-            "behavior_type": "INTROVERT (sendiri), EXTROVERT (ramai), AMBIVERT (tergantung)",
+        # Bilingual knowledge base - questions are descriptive, no option listing
+        knowledge_base = {
+            "energy_profile": {
+                "options": ["MORNING_LARK", "NIGHT_OWL", "FLEXIBLE"],
+                "definitions": """
+                - MORNING_LARK: Prefers morning, early riser, productive before noon.
+                - NIGHT_OWL: Prefers night, late worker, productive after sunset.
+                - FLEXIBLE: No strong preference, can work anytime, adaptable.
+                """,
+                "next_question": {
+                    "id": "Nah, sekarang soal motivasi. Setiap orang punya 'bahan bakar' yang berbeda buat produktif. Ada yang butuh target jelas, ada yang suka dikasih reward, ada yang semangat kalau kerja bareng tim, atau ada yang suka ngerasa berkembang. Kamu yang mana?",
+                    "en": "Now about motivation. Everyone has different 'fuel' to stay productive. Some need clear targets, others love rewards, some thrive in teams, and some are driven by personal growth. Which one resonates with you?"
+                }
+            },
+            "motivation_drivers": {
+                "options": ["GOAL_ORIENTED", "REWARD_DRIVEN", "SOCIAL_DRIVEN", "GROWTH_FOCUSED"],
+                "definitions": """
+                - GOAL_ORIENTED: Motivated by targets, achievements, completing objectives.
+                - REWARD_DRIVEN: Motivated by incentives, bonuses, recognition, money.
+                - SOCIAL_DRIVEN: Motivated by teamwork, friends, social validation.
+                - GROWTH_FOCUSED: Motivated by learning, self-improvement, skill development.
+                """,
+                "next_question": {
+                    "id": "Sip! Kalau lagi ngadepin masalah atau tantangan berat, kamu biasanya gimana? Langsung gas, mikir strategi dulu, cari bantuan, atau ngikutin arus aja?",
+                    "en": "Got it! When facing tough challenges or problems, what's your usual approach? Do you dive right in, strategize first, seek help, or go with the flow?"
+                }
+            },
+            "challenge_response": {
+                "options": ["FIGHTER", "STRATEGIC", "COLLABORATOR", "ADAPTIVE"],
+                "definitions": """
+                - FIGHTER: Attacks problems head-on, direct action, doesn't back down.
+                - STRATEGIC: Plans carefully, thinks before acting, analyzes options.
+                - COLLABORATOR: Seeks help, teamwork, prefers group problem-solving.
+                - ADAPTIVE: Goes with the flow, adjusts approach based on situation.
+                """,
+                "next_question": {
+                    "id": "Oke, sekarang soal cara belajar. Waktu kamu mau paham sesuatu yang baru, lebih gampang lewat mana? Nonton video, dengerin penjelasan, langsung praktek, atau baca-baca sendiri?",
+                    "en": "Alright, now about learning style. When you want to understand something new, what works best for you? Watching videos, listening to explanations, hands-on practice, or reading on your own?"
+                }
+            },
+            "learning_style": {
+                "options": ["VISUAL", "AUDITORY", "KINESTHETIC", "READING_WRITING"],
+                "definitions": """
+                - VISUAL: Learns through images, diagrams, videos, charts, watching.
+                - AUDITORY: Learns through listening, podcasts, discussions, verbal explanation.
+                - KINESTHETIC: Learns through doing, practice, hands-on experience, movement, simulation.
+                - READING_WRITING: Learns through reading books, articles, taking notes, writing.
+                """,
+                "next_question": {
+                    "id": "Terakhir nih! Setelah seharian aktivitas, kamu biasanya recharge energi gimana? Lebih nyaman sendirian, atau justru butuh ketemu orang-orang?",
+                    "en": "Last one! After a long day, how do you usually recharge? Do you prefer being alone, or do you need to be around people?"
+                }
+            },
+            "behavior_type": {
+                "options": ["INTROVERT", "EXTROVERT", "AMBIVERT"],
+                "definitions": """
+                - INTROVERT: Prefers solitude, quiet environments, drained by crowds.
+                - EXTROVERT: Prefers crowds, social settings, energized by people.
+                - AMBIVERT: Mix of both, depends on mood or situation.
+                """,
+                "next_question": {
+                    "id": "Mantap! Kamu sudah siap. Tap 'Mulai' untuk memulai perjalanan produktivitasmu!",
+                    "en": "Perfect! You're all set. Tap 'Get Started' to begin your productivity journey!"
+                }
+            },
         }
         
-        options_description = valid_options.get(current_stage, "Jawab pertanyaan user saja.")
+        stage_info = knowledge_base.get(current_stage, {})
+        options_list = stage_info.get("options", [])
+        definitions = stage_info.get("definitions", "")
+        next_q_dict = stage_info.get("next_question", {})
+        next_q = next_q_dict.get(language, next_q_dict.get("id", ""))
+        example_option = options_list[0] if options_list else "EXAMPLE"
         
-        return f"""Kamu adalah ALUR, asisten produktivitas.
+        lang_instruction = "Indonesian (Bahasa Indonesia)" if language == "id" else "English"
+        
+        return f"""You are a STRICT Onboarding Validator for the ALUR productivity app.
 
-KONTEKS ONBOARDING:
-- Stage Saat Ini: '{current_stage}'
-- Opsi Valid: {options_description}
+        CURRENT STAGE: '{current_stage}'
+        VALID OPTIONS: {options_list}
 
-TUGASMU:
-Analisa pesan user dan tentukan apakah jawabannya VALID untuk stage ini.
-Boleh memilih LEBIH DARI SATU value jika user memang menjawab keduanya (misal: "pagi dan malam" -> ["MORNING_LARK", "NIGHT_OWL"]).
+        OPTION DEFINITIONS (use for semantic matching):
+        {definitions}
 
-OUTPUT HARUS FORMAT JSON (Tanpa markdown):
-{{
-  "is_valid_answer": boolean,
-  "extracted_data": string | list[string], // VALUE dari Opsi Valid. Bisa satu string atau list strings jika multiple.
-  "reasoning": string,
-  "reply": string
-}}
+        YOUR TASK:
+        1. Analyze user's message and determine if it semantically matches any valid option(s).
+        2. If user says "all", "everything", "both", "semuanya" -> extract ALL relevant options.
+        3. If user's answer is semantically close to an option (e.g., "hands-on practice" = KINESTHETIC), mark as VALID.
 
-LOGIKA REPLY:
-1. JIKA is_valid_answer = TRUE:
-   - [BRIDGING] Buat transisi HALUS ke pertanyaan berikutnya. Contoh:
-     * "Keren, fleksibel pagi-malam! Nah, soal motivasi..."
-     * "Mantap, visual learner ya. Btw, kamu recharge gimana?"
-   - [WAJIB] Beri jarak 1 BARIS KOSONG (ENTER) antara pujian dan pertanyaan.
-   - JANGAN tanya "Lanjut ya?", "Next?", atau konfirmasi tidak penting.
-   - JANGAN mengulang jawaban user ("Oke kamu pilih A..."). Langsung ke pertanyaan baru.
-2. JIKA is_valid_answer = FALSE:
-   - JIKA user menjawab "SEMUANYA", "ALL", "KEDUANYA", atau sejenisnya:
-     - VALID! Masukkan SEMUA opsi yang relevan ke `extracted_data`.
-   - JIKA user benar-benar bingung/ngawur:
-     - Jelaskan singkat & tanya ulang.
-     - [PENTING] JANGAN Ulangi list opsi lengkap jika sudah ada di chat sebelumnya. Cukup tanya: "Mana yang paling pas?" atau "Bingung yang mana?"
+        OUTPUT FORMAT (JSON ONLY, NO MARKDOWN, NO EXTRA TEXT):
+        {{"is_valid_answer": true, "extracted_data": ["{example_option}"], "reply": "Great! Next question..."}}
 
-FORMATTING:
-- Gunakan list bullet (-) jika menyebutkan opsi pilihan.
-- Pastikan ada jarak antar paragraf.
+        REPLY RULES:
+        1. If VALID: Short praise (max 5 words) + NEWLINE + ask the next question: "{next_q}"
+        2. If INVALID: Do NOT repeat the full option list. Just ask clarifying question.
+        3. NEVER write raw codes like "VISUAL", "MORNING_LARK" in the reply. Use human language.
+        4. ALWAYS respond in {lang_instruction}.
 
-[LARANGAN KERAS]:
-- JANGAN PERNAH tulis raw value seperti "VISUAL", "AUDITORY", "MORNING_LARK" di dalam "reply".
-- Gunakan bahasa manusia: "lewat gambar/video", "di pagi hari", bukan "VISUAL", "MORNING_LARK".
-
-GAYA BAHASA:
-- Santai, friendly, max 2 kalimat intro/outro.
-- Hemat kata. Jangan basa-basi.
-"""
+        CRITICAL:
+        - Output ONLY valid JSON. No markdown blocks (```). No explanatory text before/after.
+        """
 
     elif mode == "GOALS_SETUP":
         return f"""You are ALUR, acting as a Strategic Goal Consultant for {user_name}.
-User Profile: {persona_data}
-
-Your Goal: Help the user define and break down their long-term goals into actionable steps.
-
-CONSULTATION FLOW:
-1. Ask about their main goal or dream they want to achieve.
-2. Help them clarify WHY this goal matters to them (motivation anchor).
-3. Break the big goal into 2-3 milestone sub-goals.
-4. For each milestone, suggest 1-2 concrete first steps (tasks).
-5. Offer to create these tasks using the 'create_new_task' tool.
-
-RULES:
-- Be visionary and encouraging. Think big, but plan practically.
-- Use the Socratic method: ask guiding questions, don't just dictate.
-- When ready to create tasks, use the 'create_new_task' tool with appropriate dates.
-- Respond in the SAME LANGUAGE the user uses for input.
-"""
+        User Profile: {persona_data}
+        Rules: Be visionary but practical. Help break big goals into tasks using 'create_new_task'.
+        Respond in the SAME LANGUAGE the user uses.
+        """
+    elif mode == "GOAL_ENHANCE":
+        return f"""You are an Expert Goal Editor using the SMART method (Specific, Measurable, Achievable, Relevant, Time-bound).
+        
+        YOUR TASK:
+        Rewrite the user's rough goal input into a clear, inspiring, and actionable "North Star" statement.
+        
+        RULES:
+        1. DO NOT chat or ask questions.
+        2. JUST return the rewritten sentence. Nothing else.
+        3. Make it sound ambitious but realistic.
+        4. Detect the user's language (Indonesian/English) and output in the SAME language.
+        
+        Example Input: "Pengen kaya"
+        Example Output: "Mencapai kebebasan finansial dengan tabungan 100 juta pertama dalam 2 tahun melalui bisnis sampingan."
+        
+        Example Input: "Lose weight"
+        Example Output: "Lose 5kg in 3 months by maintaining a consistent workout routine and healthy diet."
+        """
 
     else:  # DAILY (Default)
         return f"""You are ALUR, a personal productivity assistant for {user_name}.
-User Profile: {persona_data}
-
-Tone: Relaxed, supportive, but firm regarding data accuracy.
-Your Task: Help the user organize their schedule, record tasks, and remind them of habits.
-
-CAPABILITIES:
-- Check schedule: Use 'get_user_schedule' tool to see real tasks.
-- Reschedule tasks: Use 'update_task_schedule' tool to move tasks.
-- Create new tasks: Use 'create_new_task' tool when user wants to add something.
-
-RULES:
-- If user asks about schedules/tasks, ALWAYS use tools. DO NOT HALLUCINATE data.
-- Be conversational and friendly, like a helpful buddy.
-- Respond in the SAME LANGUAGE the user uses for input.
-"""
+        User Profile: {persona_data}
+        Tone: Relaxed, supportive, but firm regarding data accuracy.
+        Capabilities: Check schedule (get_user_schedule), Reschedule (update_task_schedule), Create (create_new_task).
+        Rules: ALWAYS use tools for data. Do not hallucinate. Respond in User's Language.
+        """
 
 
-async def process_chat(user_id: str, message: str, mode: str = "DAILY", current_stage: str = None):
+# FIX 3: Accept `session` as argument (Dependency Injection)
+async def process_chat(session: AsyncSession, user_id: str, message: str, mode: str = "DAILY", current_stage: str = None):
     """
-    Main function called by API Endpoint.
-    Manually handles tool calling loop to replace AgentExecutor.
-    Mode determines which "persona" the AI adopts.
+    Main Logic. 
+    Accepts 'session' from API Endpoint to reuse connection.
     """
-    # 1. Open Logic-Specific DB Session
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
-    async with async_session() as session:
-        # A. CONTEXT AWARENESS: Fetch User Profile
-        try:
-            uuid_user_id = uuid.UUID(user_id)
-        except ValueError:
-            return "Error: Invalid User ID format."
+    # A. Fetch Profile
+    try:
+        uuid_user_id = uuid.UUID(user_id)
+    except ValueError:
+        # FIX 1: Return dict consistently
+        return {"reply": "Error: Invalid User ID format.", "is_valid_answer": False}
 
-        profile = await session.get(Profile, uuid_user_id)
-        user_name = profile.full_name if profile else "Friend"
-        persona_data = profile.personalization_data if profile else {}
-        
-        # B. MEMORY: Fetch last 5 chats from DB
-        history_stmt = select(ChatMessage).where(ChatMessage.user_id == uuid_user_id).order_by(ChatMessage.created_at.desc()).limit(5)
-        history_result = await session.exec(history_stmt)
-        db_history = history_result.all()
-        
-        # Convert DB history to LangChain format (reverse to chronological)
-        chat_history = []
-        for msg in reversed(db_history):
-            if msg.sender == SenderType.USER.value:
-                chat_history.append(HumanMessage(content=msg.content))
-            else:
-                chat_history.append(AIMessage(content=msg.content))
+    profile = await session.get(Profile, uuid_user_id)
+    user_name = profile.full_name if profile else "Friend"
+    persona_data = profile.personalization_data if profile else {}
+    user_language = profile.preferred_language if profile else "id"  # Default Indonesian
+    
+    # B. Fetch History
+    history_stmt = select(ChatMessage).where(ChatMessage.user_id == uuid_user_id).order_by(ChatMessage.created_at.desc()).limit(5)
+    history_result = await session.exec(history_stmt)
+    db_history = history_result.all()
+    
+    chat_history = []
+    for msg in reversed(db_history):
+        if msg.sender == SenderType.USER.value:
+            chat_history.append(HumanMessage(content=msg.content))
+        else:
+            chat_history.append(AIMessage(content=msg.content))
 
-        # C. DYNAMIC SYSTEM PROMPT based on mode
-        system_prompt = get_system_prompt(mode, user_name, persona_data, current_stage)
+    # C. Prompt (with language)
+    system_prompt = get_system_prompt(mode, user_name, persona_data, current_stage, user_language)
+    messages = [SystemMessage(content=system_prompt)] + chat_history + [HumanMessage(content=message)]
+    
+    final_response_dict = {}
+    ai_reply = ""
 
-        # D. PREPARE MESSAGES
-        messages = [SystemMessage(content=system_prompt)] + chat_history + [HumanMessage(content=message)]
+    try:
+        # First LLM Call
+        response = await llm_with_tools.ainvoke(messages)
         
-        try:
-            # First LLM Call
-            response = await llm_with_tools.ainvoke(messages)
+        # --- MODE: ONBOARDING ---
+        if mode == "ONBOARDING":
+            try:
+                content_str = response.content.strip().replace("```json", "").replace("```", "").strip()
+                start_idx = content_str.find("{")
+                end_idx = content_str.rfind("}") + 1
+                if start_idx != -1 and end_idx > start_idx:
+                    content_str = content_str[start_idx:end_idx]
+                
+                if not content_str or content_str == "{}":
+                    raise ValueError("Empty JSON")
+
+                parsed_response = json.loads(content_str)
+                print(f"🧠 AI THINKING (JSON): {parsed_response}")
+                ai_reply = parsed_response.get("reply", "...")
+                
+                # DO NOT save to DB here - let frontend accumulate and save at the end
+                # Backend only validates and returns extracted_data
+                if parsed_response.get('is_valid_answer') and parsed_response.get('extracted_data') and current_stage:
+                    data_value = parsed_response['extracted_data']
+                    print(f"📦 EXTRACTED (not saved yet): {current_stage} = {data_value}")
+
+                final_response_dict = parsed_response
+
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"❌ JSON ERROR: {response.content}")
+                ai_reply = response.content  # Fallback to raw text
+                final_response_dict = {
+                    "is_valid_answer": False,
+                    "reply": ai_reply,
+                    "extracted_data": None
+                }
             
-            # --- SPECIAL LOGIC FOR ONBOARDING (JSON HANDLING) ---
-            if mode == "ONBOARDING":
-                try:
-                    # Parse JSON from AI response
-                    content_str = response.content.strip()
-                    # Remove markdown code blocks if present (e.g. ```json ... ```)
-                    if content_str.startswith("```json"):
-                         content_str = content_str[7:]
-                    if content_str.endswith("```"):
-                         content_str = content_str[:-3]
-                    
-                    if not content_str:
-                        raise ValueError("Empty JSON response from AI")
-
-                    parsed_response = json.loads(content_str.strip())
-                    
-                    # Log for debugging
-                    print(f"🧠 AI THINKING (JSON): {parsed_response}")
-                    
-                    ai_reply = parsed_response.get("reply", "...")
-                    
-                    # IF VALID: Save data to DB immediately
-                    if parsed_response.get('is_valid_answer') and parsed_response.get('extracted_data') and current_stage:
-                        data_value = parsed_response['extracted_data']
-                        
-                        # Init persona_data if None
-                        if not persona_data:
-                            persona_data = {}
-                            
-                        # Update specific field
-                        # Note: We store as list to match existing format or string?
-                        # Using list for consistency with previous schema
-                        if isinstance(data_value, list):
-                             persona_data[current_stage] = data_value
-                        else:
-                             persona_data[current_stage] = [data_value]
-                        
-                        profile.personalization_data = persona_data
-                        session.add(profile)
-                        await session.commit()
-                        await session.refresh(profile)
-                        print(f"✅ SAVED TO DB: {current_stage} = {data_value}")
-
-                    # Return the full JSON to frontend
-                    # But first, save chat log (flattened)
-                    
-                except json.JSONDecodeError:
-                    print(f"❌ JSON PARSE ERROR. Raw: {response.content}")
-                    # Fallback
-                    ai_reply = response.content
-                    parsed_response = {
-                        "is_valid_answer": False,
-                        "reply": ai_reply,
-                        "extracted_data": None
-                    }
-                
-                # Save Chat Log (User & AI Reply only)
-                user_msg_db = ChatMessage(user_id=uuid_user_id, sender=SenderType.USER.value, content=message)
-                session.add(user_msg_db)
-                
-                ai_msg_db = ChatMessage(user_id=uuid_user_id, sender=SenderType.AI.value, content=ai_reply)
-                session.add(ai_msg_db)
-                await session.commit()
-                
-                return parsed_response
-
-            # --- STANDARD LOGIC FOR OTHER MODES (DAILY, ETC) ---
-            
-            # Check for tool calls
+        # --- MODE: DAILY / GOALS ---
+        else:
+            # Tool Loop Logic
             if response.tool_calls:
                 print(f"🛠️ AI requested tools: {response.tool_calls}")
-                messages.append(response) # Add assistant message with tool calls
+                messages.append(response)
                 
                 for tool_call in response.tool_calls:
                     tool_name = tool_call["name"]
                     tool_args = tool_call["args"]
-                    
                     if tool_name in tool_map:
-                        print(f"Running tool: {tool_name}")
-                        # Execute tool
                         tool_result = await tool_map[tool_name].ainvoke(tool_args)
                         messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_call["id"]))
                     else:
-                        messages.append(ToolMessage(content=f"Error: Tool {tool_name} not found", tool_call_id=tool_call["id"]))
+                        messages.append(ToolMessage(content="Tool not found", tool_call_id=tool_call["id"]))
                 
-                # Second LLM Call (Generates final response based on tool outputs)
+                # Second Call
                 response = await llm_with_tools.ainvoke(messages)
             
             ai_reply = response.content
-            
-        except Exception as e:
-            print(f"❌ AI Error: {e}")
-            ai_reply = "Maaf, otak saya sedang loading lama. Coba lagi ya? (System Error)"
+            # FIX 1: Standardize DAILY output to Dictionary too
+            final_response_dict = {
+                "reply": ai_reply,
+                "mode": mode
+            }
         
-        # F. SAVE NEW CHAT TO DB
-        user_msg_db = ChatMessage(user_id=uuid_user_id, sender=SenderType.USER.value, content=message)
-        session.add(user_msg_db)
-        
-        ai_msg_db = ChatMessage(user_id=uuid_user_id, sender=SenderType.AI.value, content=ai_reply)
-        session.add(ai_msg_db)
-        
-        await session.commit()
-        
-        # G. DEBUG PRINT - Show collected data in terminal
-        print("\n" + "="*60)
-        print(f"📝 CHAT DEBUG [{mode}]")
-        print(f"   User: {user_name} (ID: {user_id})")
-        print(f"   Message: {message}")
-        print(f"   AI Reply: {ai_reply[:100]}..." if len(ai_reply) > 100 else f"   AI Reply: {ai_reply}")
-        print(f"   Persona Data from DB: {persona_data}")
-        print("="*60 + "\n")
-        
-        return ai_reply
+    except Exception as e:
+        print(f"❌ AI Error: {e}")
+        ai_reply = "Maaf, sistem sedang sibuk. Coba lagi nanti."
+        final_response_dict = {"reply": ai_reply, "error": str(e)}
+    
+    # Save Chat Logs
+    session.add(ChatMessage(user_id=uuid_user_id, sender=SenderType.USER.value, content=message))
+    session.add(ChatMessage(user_id=uuid_user_id, sender=SenderType.AI.value, content=ai_reply))
+    await session.commit()
+    
+    # Debug Print
+    print("\n" + "="*60)
+    print(f"📝 CHAT DEBUG [{mode}] Reply: {ai_reply[:50] if ai_reply else 'N/A'}...")
+    print("="*60 + "\n")
+    
+    return final_response_dict

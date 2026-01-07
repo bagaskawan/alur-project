@@ -3,7 +3,9 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 
 class ChatScreen extends StatelessWidget {
-  const ChatScreen({super.key});
+  final String initialMode;
+
+  const ChatScreen({super.key, this.initialMode = 'DAILY'});
 
   @override
   Widget build(BuildContext context) {
