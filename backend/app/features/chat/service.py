@@ -2,7 +2,7 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from app.core.config import settings
 from app.features.chat.tools import get_user_schedule, update_task_schedule, create_new_task
-from app.models.all_models import Profile, ChatMessage, SenderType
+from app.models.all_models import Profile, ChatMessage, SenderType, Goal, ItemStatus
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 import uuid
@@ -22,7 +22,7 @@ tool_map = {t.name: t for t in tools}
 llm_with_tools = llm.bind_tools(tools)
 
 
-def get_system_prompt(mode: str, user_name: str, persona_data: dict, current_stage: str = None, language: str = "id") -> str:
+def get_system_prompt(mode: str, user_name: str, persona_data: dict, current_stage: str = None, language: str = "id", message: str = "") -> str:
     """
     Returns the appropriate system prompt based on the chat mode.
     Language: 'id' = Indonesian, 'en' = English
@@ -133,26 +133,163 @@ def get_system_prompt(mode: str, user_name: str, persona_data: dict, current_sta
     elif mode == "GOALS_SETUP":
         return f"""You are ALUR, acting as a Strategic Goal Consultant for {user_name}.
         User Profile: {persona_data}
-        Rules: Be visionary but practical. Help break big goals into tasks using 'create_new_task'.
-        Respond in the SAME LANGUAGE the user uses.
+        
+        YOUR ROLE:
+        - Help the user refine their goal and discuss strategy.
+        - Be conversational, supportive, and intelligent.
+        
+        CRITICAL RULES (DO NOT VIOLATE):
+        1. NEVER ask for internal system data like "User ID", "Bento ID", or any identifier.
+        2. NEVER ask for "Tanggal Mulai" or "Start Date" explicitly. ASSUME the goal starts TODAY.
+        3. When proposing a timeline, ALWAYS frame it as a RECOMMENDATION.
+        4. DO NOT call tools (create_new_task, etc.) in this mode. Just discuss strategy.
+        5. Respond in the SAME LANGUAGE the user uses.
+        
+        IMPORTANT - AGREEMENT DETECTION:
+        If the user indicates AGREEMENT (e.g., "setuju", "iya", "ok", "yes", "lanjut", "sesuai", "gas"):
+        - DO NOT generate tables, lists, or detailed plans.
+        - Instead, respond with a SHORT bridging message (1-2 sentences max).
+        - Example: "Bagus! Blueprint strategimu sudah siap. Klik tombol di bawah untuk melihat rencana detailnya 🎯"
+        - Keep it exciting and encouraging.
+        
+        FOCUS: Be concise. No tables. No markdown lists. Just conversational text.
         """
     elif mode == "GOAL_ENHANCE":
-        return f"""You are an Expert Goal Editor using the SMART method (Specific, Measurable, Achievable, Relevant, Time-bound).
+        return f"""You are a SMART Goal Specialist (Specific, Measurable, Achievable, Relevant, Time-bound).
         
         YOUR TASK:
-        Rewrite the user's rough goal input into a clear, inspiring, and actionable "North Star" statement.
+        Refine the user's input into a realistic, high-quality goal statement.
         
-        RULES:
-        1. DO NOT chat or ask questions.
-        2. JUST return the rewritten sentence. Nothing else.
-        3. Make it sound ambitious but realistic.
-        4. Detect the user's language (Indonesian/English) and output in the SAME language.
+        CRITICAL REALITY CHECK:
+        - If the goal is a CAREER CHANGE (e.g., "Become AI Engineer", "Doctor", "Senior Dev"), the timeline MUST be realistic (6 months - 2 years), not weeks.
+        - If the goal is a HABIT (e.g., "Read books"), focus on frequency (daily/weekly).
         
-        Example Input: "Pengen kaya"
-        Example Output: "Mencapai kebebasan finansial dengan tabungan 100 juta pertama dalam 2 tahun melalui bisnis sampingan."
+        OUTPUT RULES:
+        1. Return ONLY the rewritten sentence. No intro/outro.
+        2. Detect the user's language (Indonesian/English) and output in the SAME language.
+        
+        Example Input: "Pengen jadi AI Engineer"
+        Example Output: "Bekerja sebagai Junior AI Engineer dalam 12 bulan dengan menguasai Python, Machine Learning, dan membangun 3 portofolio proyek."
         
         Example Input: "Lose weight"
-        Example Output: "Lose 5kg in 3 months by maintaining a consistent workout routine and healthy diet."
+        Example Output: "Mencapai berat badan ideal 65kg dalam 4 bulan melalui olahraga rutin 3x seminggu dan defisit kalori."
+        """
+
+
+    # [BARU] 1. THE RELATIONSHIP DETECTOR (Cek Hubungan)
+    elif mode == "GOAL_RELATIONSHIP_CHECK":
+        # Kita butuh data goal lama user (North Star)
+        existing_goals_summary = persona_data.get('active_goals_summary', 'No active goals')
+        
+        return f"""You are the 'Goal Integration Engine'.
+        
+        CONTEXT:
+        The user has an existing North Star Goal: "{existing_goals_summary}".
+        The user just input a NEW desire: "{current_stage}" (Using 'current_stage' to pass the Enhanced Goal).
+        
+        YOUR TASK:
+        Analyze if this NEW desire is actually a SUB-SKILL or PILLAR of the Existing Goal, or completely unrelated.
+        
+        LOGIC EXAMPLES:
+        - Existing: "Become AI Engineer". Input: "Learn English". 
+          -> Result: RELATED (English is needed for reading AI papers). Suggestion: MERGE as Habit/Pillar.
+        - Existing: "Lose 10kg". Input: "Learn Guitar".
+          -> Result: UNRELATED. Suggestion: CREATE NEW GOAL.
+        
+        CRITICAL LANGUAGE RULE:
+        - Detect the language of the NEW desire input.
+        - ALL text fields ("reasoning", "merge_strategy") MUST be in the SAME LANGUAGE as the user input.
+        - Exception: Technical terms can remain in English.
+
+        OUTPUT JSON ONLY:
+        {{
+            "is_related": true/false,
+            "relationship_score": 0-100,
+            "reasoning": "Explanation in user's language",
+            "recommendation": "MERGE" or "NEW",
+            "merge_strategy": "If MERGE, explain how in user's language"
+        }}
+        """
+
+    # [BARU] 2. STRATEGY ADVISOR (Pemilih Metode Dinamis)
+    elif mode == "STRATEGY_ADVISOR":
+        return f"""You are a Senior Productivity Architect.
+        
+        USER GOAL: "{message}"
+        
+        YOUR TASK:
+        1. Analyze the COMPLEXITY and DIFFICULTY of the goal.
+        2. Assign the most realistic framework based on the table below.
+        
+        DECISION MATRIX:
+        | Goal Type | Complexity | Example | Recommended Framework | Time Horizon |
+        |---|---|---|---|---|
+        | **Career Transformation** | Very High | Become AI Engineer, Start Business | **Project 180** | 6-12 Months |
+        | **Major Project** | High | Write a Thesis, Launch App | **Project 180** | 3-6 Months |
+        | **Short Project/Event** | Medium | Plan Wedding, Exam Prep | **Sprint Mode** | 2-4 Weeks |
+        | **Habit/Lifestyle** | N/A | Read books, Gym, Wake early | **Atomic Habits** | Forever/Ongoing |
+        | **Skill Mastery** | High | Master Piano, Learn Japanese | **Harada Method** | 3-6 Months |
+
+        CRITICAL LANGUAGE RULE:
+        - Detect the language of the USER GOAL.
+        - ALL text fields in the JSON output ("why", "time_horizon", "structure_preview") MUST be in the SAME LANGUAGE as the user input.
+        - If user speaks Indonesian, respond in Indonesian. If English, respond in English.
+        - Exception: Technical terms like "AI Engineer", "Machine Learning", or method names can remain in English.
+
+        OUTPUT JSON ONLY (No Markdown, No Explanations):
+        {{
+            "recommended_method": "Exact Name from Matrix",
+            "time_horizon": "Realistic Duration in user's language (e.g., '8 Bulan' or '8 Months')",
+            "why": "Reason in user's language",
+            "structure_preview": ["Phase 1", "Phase 2"] in user's language
+        }}
+        """
+
+    # [BARU] 3. BLUEPRINT GENERATOR (Generate Detailed Phases)
+    elif mode == "BLUEPRINT_GENERATOR":
+        return f"""You are a Master Project Planner.
+        
+        USER GOAL: "{message}"
+        TIME HORIZON: "{current_stage}" (e.g., "6 Bulan", "3 Months")
+        
+        YOUR TASK:
+        Generate a DETAILED breakdown of the goal into monthly phases.
+        
+        CRITICAL INSTRUCTION FOR TITLE:
+        - "goal_title" MUST be a very short summary (MAX 3 WORDS).
+        - Example: "Menjadi AI Engineer", "Turun Berat Badan", "Buka Bisnis Kopi".
+        - DO NOT put the full goal description in the title.
+        
+        CRITICAL LANGUAGE RULE:
+        - Detect the language of the USER GOAL.
+        - ALL text MUST be in the SAME LANGUAGE as the user input.
+        - Exception: Technical terms can remain in English.
+        
+        OUTPUT JSON ONLY (No Markdown, No Explanations):
+        {{
+            "action": "SHOW_BLUEPRINT",
+            "goal_title": "SHORT 2-3 WORDS SUMMARY",
+            "time_horizon": "6 Bulan",
+            "blueprint_data": [
+                {{
+                    "phase_name": "Bulan 1",
+                    "focus": "Fundamental Python & Math",
+                    "tasks": [
+                        {{"title": "Selesaikan Course Python Basic", "duration": "10 jam"}},
+                        {{"title": "Paham Aljabar Linear", "duration": "5 jam"}}
+                    ]
+                }},
+                {{
+                    "phase_name": "Bulan 2",
+                    "focus": "Machine Learning Basics",
+                    "tasks": [
+                        {{"title": "Pelajari Scikit-Learn", "duration": "8 jam"}},
+                        {{"title": "Buat 2 Mini Projects", "duration": "6 jam"}}
+                    ]
+                }}
+                // Continue for all phases based on time_horizon
+            ]
+        }}
         """
 
     else:  # DAILY (Default)
@@ -183,6 +320,25 @@ async def process_chat(session: AsyncSession, user_id: str, message: str, mode: 
     persona_data = profile.personalization_data if profile else {}
     user_language = profile.preferred_language if profile else "id"  # Default Indonesian
     
+    # [GATEKEEPER LOGIC] Fetch Active Goals if Relationship Check
+    if mode == "GOAL_RELATIONSHIP_CHECK":
+        try:
+            # Try to fetch active goals - wrapped in try-catch for database compatibility
+            active_goals_stmt = select(Goal).where(Goal.user_id == uuid_user_id, Goal.status == "IN_PROGRESS")
+            goals_result = await session.exec(active_goals_stmt)
+            active_goals = goals_result.all()
+            
+            active_goals_text = "No active goals"
+            if active_goals:
+                active_goals_text = ", ".join([g.title for g in active_goals])
+            
+            # Inject into persona_data for the prompt
+            persona_data['active_goals_summary'] = active_goals_text
+        except Exception as goal_fetch_error:
+            print(f"⚠️ Could not fetch goals (DB type mismatch?): {goal_fetch_error}")
+            persona_data['active_goals_summary'] = "No active goals"
+
+    
     # B. Fetch History
     history_stmt = select(ChatMessage).where(ChatMessage.user_id == uuid_user_id).order_by(ChatMessage.created_at.desc()).limit(5)
     history_result = await session.exec(history_stmt)
@@ -196,7 +352,7 @@ async def process_chat(session: AsyncSession, user_id: str, message: str, mode: 
             chat_history.append(AIMessage(content=msg.content))
 
     # C. Prompt (with language)
-    system_prompt = get_system_prompt(mode, user_name, persona_data, current_stage, user_language)
+    system_prompt = get_system_prompt(mode, user_name, persona_data, current_stage, user_language, message)
     messages = [SystemMessage(content=system_prompt)] + chat_history + [HumanMessage(content=message)]
     
     final_response_dict = {}
@@ -206,40 +362,85 @@ async def process_chat(session: AsyncSession, user_id: str, message: str, mode: 
         # First LLM Call
         response = await llm_with_tools.ainvoke(messages)
         
-        # --- MODE: ONBOARDING ---
-        if mode == "ONBOARDING":
+        # [FIX] GROUP ALL MODES THAT REQUIRE JSON PARSING HERE
+        json_modes = ["ONBOARDING", "STRATEGY_ADVISOR", "GOAL_RELATIONSHIP_CHECK", "BLUEPRINT_GENERATOR"]
+        
+        if mode in json_modes:
             try:
-                content_str = response.content.strip().replace("```json", "").replace("```", "").strip()
+                # 1. Cleaner: Markdown removal
+                content_str = response.content.strip()
+                if "```" in content_str:
+                    content_str = content_str.replace("```json", "").replace("```", "")
+                
+                content_str = content_str.strip()
+                
+                # 2. Extract JSON block if surrounded by text
                 start_idx = content_str.find("{")
                 end_idx = content_str.rfind("}") + 1
                 if start_idx != -1 and end_idx > start_idx:
                     content_str = content_str[start_idx:end_idx]
                 
-                if not content_str or content_str == "{}":
-                    raise ValueError("Empty JSON")
+                if not content_str:
+                    raise ValueError("Empty JSON string extracted")
 
+                # 3. Parse
                 parsed_response = json.loads(content_str)
-                print(f"🧠 AI THINKING (JSON): {parsed_response}")
-                ai_reply = parsed_response.get("reply", "...")
-                
-                # DO NOT save to DB here - let frontend accumulate and save at the end
-                # Backend only validates and returns extracted_data
-                if parsed_response.get('is_valid_answer') and parsed_response.get('extracted_data') and current_stage:
-                    data_value = parsed_response['extracted_data']
-                    print(f"📦 EXTRACTED (not saved yet): {current_stage} = {data_value}")
+                print(f"🧠 AI THINKING (JSON parsed in {mode}): {parsed_response}")
 
-                final_response_dict = parsed_response
+                # --- SPECIAL HANDLING PER MODE (IF NEEDED) ---
+
+                # Mode: ONBOARDING
+                if mode == "ONBOARDING":
+                    ai_reply = parsed_response.get("reply", "...")
+                    # Save logs logic for onboarding usually happens here or frontend triggers next
+                    if parsed_response.get('is_valid_answer') and parsed_response.get('extracted_data') and current_stage:
+                         # Just logging for now, similar to before
+                         pass
+                    final_response_dict = parsed_response
+                
+                # Mode: STRATEGY & RELATIONSHIP
+                else:
+                    # Frontend expects a stringified JSON in 'reply' for compatibility
+                    # or it can consume the dict directly if updated.
+                    # Based on User Request, we stick to the existing plan but robustly.
+                    # Actually, if we return final_response_dict as Parsed Dict, frontend API service 
+                    # usually returns 'data'. If `response.data` is the dict, then `response.data['reply']` is accessed.
+                    # Re-reading goals_service.dart: 
+                    # `String jsonStr = response.data['reply'] as String;`
+                    # So 'reply' MUST be a STRING.
+                    
+                    final_response_dict = {
+                        "reply": json.dumps(parsed_response), 
+                        "mode": mode
+                    }
+                    ai_reply = f"[JSON Data for {mode}]"
 
             except (json.JSONDecodeError, ValueError) as e:
-                print(f"❌ JSON ERROR: {response.content}")
-                ai_reply = response.content  # Fallback to raw text
+                print(f"❌ JSON ERROR in {mode}: {response.content}")
+                
+                # Fallback Logic
+                error_fallback = {}
+                if mode == "STRATEGY_ADVISOR":
+                     error_fallback = {
+                        "recommended_method": "Project 180", 
+                        "why": "AI Output Error (Fallback).", 
+                        "time_horizon": "6 Months"
+                     }
+                elif mode == "GOAL_RELATIONSHIP_CHECK":
+                     error_fallback = {
+                         "is_related": False,
+                         "reasoning": "Fallback due to AI error."
+                     }
+                else:
+                     error_fallback = {"reply": "Error processing request."}
+                
                 final_response_dict = {
-                    "is_valid_answer": False,
-                    "reply": ai_reply,
-                    "extracted_data": None
+                    "reply": json.dumps(error_fallback), 
+                    "mode": mode
                 }
-            
-        # --- MODE: DAILY / GOALS ---
+                ai_reply = "Error generating proper JSON."
+
+        # --- MODE: DAILY / GOALS (Standard Chat) ---
         else:
             # Tool Loop Logic
             if response.tool_calls:

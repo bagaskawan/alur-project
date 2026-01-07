@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../services/goals_service.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'blueprint_preview_screen.dart';
 
 class GoalsScreen extends StatefulWidget {
   final bool isNewUser;
@@ -16,6 +18,7 @@ class _GoalsScreenState extends State<GoalsScreen>
     with TickerProviderStateMixin {
   final TextEditingController _goalController = TextEditingController();
   final TextEditingController _chatController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   final GoalsService _goalsService = GoalsService();
 
   bool _isEnhancing = false;
@@ -25,6 +28,18 @@ class _GoalsScreenState extends State<GoalsScreen>
   final List<Map<String, dynamic>> _messages =
       []; // {text: String, isUser: bool}
   bool _isAiLoading = false;
+  String _loadingText = '';
+
+  // Blueprint State
+  bool _showBlueprintButton = false;
+  String _currentGoal = '';
+  String _currentTimeHorizon = '';
+
+  // Typing Animation State
+  Timer? _typingTimer;
+  int _typingIndex = 0;
+  String _currentTypingText = '';
+  bool _isTyping = false;
 
   // Animation Controllers
   late AnimationController _transitionController;
@@ -79,10 +94,64 @@ class _GoalsScreenState extends State<GoalsScreen>
 
   @override
   void dispose() {
+    _typingTimer?.cancel();
     _goalController.dispose();
     _chatController.dispose();
+    _scrollController.dispose();
     _transitionController.dispose();
     super.dispose();
+  }
+
+  /// Scroll to show the latest AI message at the top of the viewport
+  void _scrollToLatestMessage() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  /// Start typing animation for AI response (word by word)
+  void _startTypingAnimation(String fullText, {Function? onComplete}) {
+    _typingTimer?.cancel();
+
+    final words = fullText.split(' ');
+    _typingIndex = 0;
+    _currentTypingText = '';
+    _isTyping = true;
+
+    // Add empty AI message that will be updated
+    setState(() {
+      _messages.add({'text': '', 'isUser': false, 'isTyping': true});
+    });
+
+    _typingTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      if (_typingIndex < words.length) {
+        setState(() {
+          _currentTypingText +=
+              ((_typingIndex > 0) ? ' ' : '') + words[_typingIndex];
+          // Update the last message (which is the AI message being typed)
+          if (_messages.isNotEmpty) {
+            _messages.last['text'] = _currentTypingText;
+          }
+        });
+        _typingIndex++;
+        _scrollToLatestMessage();
+      } else {
+        timer.cancel();
+        _isTyping = false;
+        if (_messages.isNotEmpty) {
+          _messages.last['isTyping'] = false;
+        }
+        if (onComplete != null) {
+          onComplete();
+        }
+      }
+    });
   }
 
   Future<void> _onAIEnhance() async {
@@ -119,8 +188,9 @@ class _GoalsScreenState extends State<GoalsScreen>
     }
   }
 
-  void _onStartStrategySession() {
-    if (_goalController.text.trim().isEmpty) {
+  Future<void> _processUserGoal() async {
+    final rawGoal = _goalController.text.trim();
+    if (rawGoal.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Tulis goal kamu dulu ya!'),
@@ -130,42 +200,77 @@ class _GoalsScreenState extends State<GoalsScreen>
       return;
     }
 
-    // Update state first, then start animation
     setState(() {
       _isSessionStarted = true;
+      _isAiLoading = true;
+      _loadingText = 'Memperjelas kalimat...';
+      // Add initial user message
+      _messages.add({'text': rawGoal, 'isUser': true});
     });
 
-    // Start animation
+    // Start animation immediately for smooth transition
     _transitionController.forward();
 
-    // Add initial goal as user message
-    setState(() {
-      _messages.add({'text': _goalController.text, 'isUser': true});
-      _isAiLoading = true;
-    });
+    try {
+      // 1. Enhance Goal (Mocking the enhance call logic from service if not redundant,
+      // but actually we already have the text in controller.
+      // The user might have already clicked 'Enhance' manually.
+      // If they didn't, we could enhance it here.
+      // Current flow: User types -> (Optional Enhance) -> Click Start.
+      // If we assume user wants to start with what is in the box:
+      String currentGoal = rawGoal;
 
-    // Send the initial goal to the backend
-    _goalsService
-        .sendGoalSetupMessage(_goalController.text)
-        .then((reply) {
-          if (mounted) {
-            setState(() {
-              _isAiLoading = false;
-              _messages.add({'text': reply, 'isUser': false});
-            });
-          }
-        })
-        .catchError((e) {
-          if (mounted) {
-            setState(() {
-              _isAiLoading = false;
-            });
-            debugPrint('Failed to send initial goal: $e');
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('Failed to connect: $e')));
-          }
+      // [TEMPORARILY DISABLED] Relationship Check - causes DB transaction errors
+      // Uncomment when Supabase schema matches Python models
+      /*
+      if (mounted) setState(() => _loadingText = 'checking...');
+      final relation = await _goalsService.checkGoalRelationship(currentGoal);
+      if (relation['is_related'] == true && mounted) {
+        // Show merge dialog...
+      }
+      */
+
+      // 3. Strategy Advisor
+      if (mounted) setState(() => _loadingText = 'Merancang strategi...');
+      final strategy = await _goalsService.getStrategyAdvice(currentGoal);
+
+      // Construct the AI welcome message based on strategy
+      String strategyName = strategy['recommended_method'] ?? 'Metode Standar';
+      String timeHorizon = strategy['time_horizon'] ?? 'beberapa waktu';
+      String reason = strategy['why'] ?? '';
+
+      String aiWelcome =
+          "Oke, targetmu adalah **$currentGoal**. \n\n"
+          "Berdasarkan kompleksitas goal ini, saya **merekomendasikan** sekitar **$timeHorizon** dengan metode **$strategyName**.\n"
+          "_Alasan: ${reason}_ \n\n"
+          "Apakah timeline ini sesuai, atau kamu punya target waktu sendiri?";
+
+      if (mounted) {
+        setState(() {
+          _isAiLoading = false;
+          // Store for Blueprint generation
+          _currentGoal = currentGoal;
+          _currentTimeHorizon = timeHorizon;
         });
+
+        // Start typing animation for AI response
+        _startTypingAnimation(aiWelcome);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isAiLoading = false;
+          // Fallback message
+          _messages.add({
+            'text': 'Maaf, ada gangguan. Kita lanjut manual saja ya.',
+            'isUser': false,
+          });
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
   }
 
   Future<void> _onSendMessage() async {
@@ -173,6 +278,23 @@ class _GoalsScreenState extends State<GoalsScreen>
     if (text.isEmpty) return;
 
     _chatController.clear();
+
+    // Check if user is agreeing
+    final agreementKeywords = [
+      'setuju',
+      'iya',
+      'ya',
+      'ok',
+      'oke',
+      'yes',
+      'agree',
+      'sesuai',
+      'lanjut',
+      'gas',
+    ];
+    final isAgreement = agreementKeywords.any(
+      (k) => text.toLowerCase().contains(k),
+    );
 
     setState(() {
       _messages.add({'text': text, 'isUser': true});
@@ -182,9 +304,24 @@ class _GoalsScreenState extends State<GoalsScreen>
     try {
       final reply = await _goalsService.sendGoalSetupMessage(text);
       if (mounted) {
-        setState(() {
-          _messages.add({'text': reply, 'isUser': false});
-        });
+        setState(() => _isAiLoading = false);
+
+        // Check for error response
+        final isErrorResponse =
+            reply.toLowerCase().contains('maaf') ||
+            reply.toLowerCase().contains('error') ||
+            reply.toLowerCase().contains('sibuk') ||
+            reply.toLowerCase().contains('coba lagi');
+
+        // Start typing animation with callback for agreement
+        _startTypingAnimation(
+          reply,
+          onComplete: () {
+            if (isAgreement && _currentGoal.isNotEmpty && !isErrorResponse) {
+              setState(() => _showBlueprintButton = true);
+            }
+          },
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -284,7 +421,7 @@ class _GoalsScreenState extends State<GoalsScreen>
                     ),
                   ],
 
-                  // Chat input (slides up)
+                  // Chat input OR Blueprint button (slides up)
                   if (_isSessionStarted)
                     Transform.translate(
                       offset: Offset(0, _chatInputSlideAnimation.value),
@@ -295,7 +432,9 @@ class _GoalsScreenState extends State<GoalsScreen>
                                 1.0,
                               )
                             : 0.0,
-                        child: _buildChatInputRow(),
+                        child: _showBlueprintButton
+                            ? _buildBlueprintButton()
+                            : _buildChatInputRow(),
                       ),
                     ),
 
@@ -377,6 +516,7 @@ class _GoalsScreenState extends State<GoalsScreen>
 
   Widget _buildSessionChat() {
     return ListView.builder(
+      controller: _scrollController,
       padding: const EdgeInsets.symmetric(vertical: 20),
       itemCount: _messages.length + (_isAiLoading ? 1 : 0),
       itemBuilder: (context, index) {
@@ -498,15 +638,31 @@ class _GoalsScreenState extends State<GoalsScreen>
             ),
           ],
         ),
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              AppColors.dark.withOpacity(0.5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  AppColors.dark.withOpacity(0.5),
+                ),
+              ),
             ),
-          ),
+            if (_loadingText.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Text(
+                _loadingText,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.dark.withOpacity(0.5),
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -657,7 +813,7 @@ class _GoalsScreenState extends State<GoalsScreen>
       width: double.infinity,
       height: 56,
       child: ElevatedButton(
-        onPressed: _onStartStrategySession,
+        onPressed: _processUserGoal,
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.pastelYellow,
           foregroundColor: AppColors.dark,
@@ -679,6 +835,77 @@ class _GoalsScreenState extends State<GoalsScreen>
         ),
       ),
     );
+  }
+
+  Widget _buildBlueprintButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 56,
+      child: ElevatedButton(
+        onPressed: _onOpenBlueprint,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.pastelYellow,
+          foregroundColor: AppColors.dark,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.auto_awesome, size: 20),
+            const SizedBox(width: 8),
+            const Text(
+              'Lihat Blueprint Strategy',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onOpenBlueprint() async {
+    setState(() {
+      _isAiLoading = true;
+      _loadingText = 'Membuat blueprint detail...';
+    });
+
+    try {
+      final blueprintResult = await _goalsService.generateBlueprint(
+        _currentGoal,
+        _currentTimeHorizon,
+      );
+
+      if (mounted) {
+        setState(() => _isAiLoading = false);
+
+        final blueprintData =
+            blueprintResult['blueprint_data'] as List<dynamic>? ?? [];
+        final goalTitle = blueprintResult['goal_title'] ?? _currentGoal;
+        final timeHorizon =
+            blueprintResult['time_horizon'] ?? _currentTimeHorizon;
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BlueprintPreviewScreen(
+              goalTitle: goalTitle,
+              timeHorizon: timeHorizon,
+              blueprintData: blueprintData,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isAiLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error generating blueprint: $e')),
+        );
+      }
+    }
   }
 
   Widget _buildChatInputRow() {

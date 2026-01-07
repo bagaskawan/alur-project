@@ -9,7 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 router = APIRouter()
 
 # Mode types for AI "persona switching"
-ChatMode = Literal["ONBOARDING", "GOALS_SETUP", "GOAL_ENHANCE", "DAILY"]
+ChatMode = Literal["ONBOARDING", "GOALS_SETUP", "GOAL_ENHANCE", "GOAL_RELATIONSHIP_CHECK", "STRATEGY_ADVISOR", "BLUEPRINT_GENERATOR", "DAILY"]
 
 class ChatRequest(BaseModel):
     message: str

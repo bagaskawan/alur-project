@@ -35,9 +35,9 @@ class Task(SQLModel, table=True):
     title: str
     description: Optional[str] = None
     
-    # Enum Handling
-    status: ItemStatus = Field(sa_column=Column(Enum(ItemStatus), default=ItemStatus.TODO))
-    energy_required: EnergyLevel = Field(sa_column=Column(Enum(EnergyLevel), default=EnergyLevel.MEDIUM))
+    # Use String instead of Enum for Supabase compatibility
+    status: str = Field(default="TODO")
+    energy_required: str = Field(default="MEDIUM")
     
     scheduled_date: Optional[datetime] = None
     estimated_duration: Optional[int] = None # Dalam menit
@@ -62,6 +62,20 @@ class ChatMessage(SQLModel, table=True):
     related_task_id: Optional[uuid.UUID] = Field(default=None, foreign_key="tasks.id")
     is_onboarding: bool = Field(default=False)
     
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# --- MODEL: GOALS ---
+class Goal(SQLModel, table=True):
+    __tablename__ = "goals"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(foreign_key="profiles.id", nullable=False)
+    
+    title: str
+    description: Optional[str] = None
+    
+    # Use String instead of Enum for Supabase compatibility
+    status: str = Field(default="IN_PROGRESS")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 # --- MODEL: PROFILES (Update yang kemarin biar lengkap) ---
