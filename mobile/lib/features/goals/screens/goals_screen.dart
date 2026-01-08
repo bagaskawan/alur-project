@@ -40,6 +40,8 @@ class _GoalsScreenState extends State<GoalsScreen>
   int _typingIndex = 0;
   String _currentTypingText = '';
   bool _isTyping = false;
+  // State for Conversational Flow
+  bool _isWaitingForTime = false;
 
   // Animation Controllers
   late AnimationController _transitionController;
@@ -116,7 +118,11 @@ class _GoalsScreenState extends State<GoalsScreen>
   }
 
   /// Start typing animation for AI response (word by word)
-  void _startTypingAnimation(String fullText, {Function? onComplete}) {
+  void _startTypingAnimation(
+    String fullText, {
+    Function? onComplete,
+    List<String> options = const [],
+  }) {
     _typingTimer?.cancel();
 
     final words = fullText.split(' ');
@@ -143,10 +149,18 @@ class _GoalsScreenState extends State<GoalsScreen>
         _scrollToLatestMessage();
       } else {
         timer.cancel();
-        _isTyping = false;
-        if (_messages.isNotEmpty) {
-          _messages.last['isTyping'] = false;
-        }
+
+        setState(() {
+          _isTyping = false;
+          if (_messages.isNotEmpty) {
+            _messages.last['isTyping'] = false;
+            // Reveal options only after typing is done
+            if (options.isNotEmpty) {
+              _messages.last['options'] = options;
+            }
+          }
+        });
+
         if (onComplete != null) {
           onComplete();
         }
@@ -203,119 +217,191 @@ class _GoalsScreenState extends State<GoalsScreen>
     setState(() {
       _isSessionStarted = true;
       _isAiLoading = true;
-      _loadingText = 'Memperjelas kalimat...';
-      // Add initial user message
+      _loadingText = 'Mengaudit rencana...';
       _messages.add({'text': rawGoal, 'isUser': true});
+      // Removed: _quickReplies = []; // Clear previous suggestions
     });
 
-    // Start animation immediately for smooth transition
+    // Start animation
     _transitionController.forward();
 
     try {
-      // 1. Enhance Goal (Mocking the enhance call logic from service if not redundant,
-      // but actually we already have the text in controller.
-      // The user might have already clicked 'Enhance' manually.
-      // If they didn't, we could enhance it here.
-      // Current flow: User types -> (Optional Enhance) -> Click Start.
-      // If we assume user wants to start with what is in the box:
-      String currentGoal = rawGoal;
+      // 1. Initial Strategy Check
+      // We pass the goal. Constraints are initially empty or implicitly checked by backend.
+      final strategyData = await _goalsService.getStrategyAdvice(rawGoal, "");
 
-      // [TEMPORARILY DISABLED] Relationship Check - causes DB transaction errors
-      // Uncomment when Supabase schema matches Python models
-      /*
-      if (mounted) setState(() => _loadingText = 'checking...');
-      final relation = await _goalsService.checkGoalRelationship(currentGoal);
-      if (relation['is_related'] == true && mounted) {
-        // Show merge dialog...
-      }
-      */
-
-      // 3. Strategy Advisor
-      if (mounted) setState(() => _loadingText = 'Merancang strategi...');
-      final strategy = await _goalsService.getStrategyAdvice(currentGoal);
-
-      // Construct the AI welcome message based on strategy
-      String strategyName = strategy['recommended_method'] ?? 'Metode Standar';
-      String timeHorizon = strategy['time_horizon'] ?? 'beberapa waktu';
-      String reason = strategy['why'] ?? '';
-
-      String aiWelcome =
-          "Oke, targetmu adalah **$currentGoal**. \n\n"
-          "Berdasarkan kompleksitas goal ini, saya **merekomendasikan** sekitar **$timeHorizon** dengan metode **$strategyName**.\n"
-          "_Alasan: ${reason}_ \n\n"
-          "Apakah timeline ini sesuai, atau kamu punya target waktu sendiri?";
+      final action = strategyData['action'] as String?;
+      final reply = strategyData['reply'] as String? ?? "Hmm, bisa diperjelas?";
+      final options =
+          (strategyData['options'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [];
 
       if (mounted) {
         setState(() {
           _isAiLoading = false;
-          // Store for Blueprint generation
-          _currentGoal = currentGoal;
-          _currentTimeHorizon = timeHorizon;
+          // Removed: _quickReplies = options;
         });
 
-        // Start typing animation for AI response
-        _startTypingAnimation(aiWelcome);
+        // Handle Actions
+        if (action == 'ASK_TIME') {
+          // Scenario: AI needs time commitment details
+          _isWaitingForTime = true;
+          _startTypingAnimation(reply, options: options);
+        } else if (action == 'NEGOTIATE') {
+          // Scenario: Goal Impossible -> Soft Warning in Chat
+          // Parse recommendation if available to update context
+          if (strategyData['recommendation'] != null) {
+            final rec = strategyData['recommendation'];
+            _currentGoal = rec['final_goal_title'] ?? rawGoal;
+            _currentTimeHorizon = rec['duration_text'] ?? '?';
+          }
+          _startTypingAnimation(reply, options: options);
+        } else if (action == 'PROCEED') {
+          // Scenario: Goal Realistic -> Show Plan
+          _handleProceedState(strategyData, rawGoal);
+        } else {
+          // Fallback
+          _startTypingAnimation(reply, options: options);
+        }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isAiLoading = false;
-          // Fallback message
+          // Removed: _quickReplies = [];
           _messages.add({
-            'text': 'Maaf, ada gangguan. Kita lanjut manual saja ya.',
+            'text': 'Maaf, ada gangguan teknis. Kita lanjut manual saja ya.',
             'isUser': false,
           });
         });
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
 
-  Future<void> _onSendMessage() async {
-    final text = _chatController.text.trim();
+  // Refactored helper to handle the "PROCEED" state
+  void _handleProceedState(Map<String, dynamic> data, String originalGoal) {
+    final reply = data['reply'] as String? ?? "Oke, lanjut.";
+    final rec = data['recommendation'] ?? {};
+    // Extract options if any passed in handle proceed
+    final options =
+        (data['options'] as List?)?.map((e) => e.toString()).toList() ?? [];
+
+    _currentGoal = rec['final_goal_title'] ?? originalGoal;
+    _currentTimeHorizon = rec['duration_text'] ?? '';
+
+    if (mounted) {
+      setState(() {
+        // Removed: _quickReplies = options;
+      });
+    }
+
+    _startTypingAnimation(
+      reply,
+      options: options,
+      onComplete: () {
+        // Show Blueprint Button if logic allows, or wait for user confirmation "Siap"
+        // usage: The PROCEED reply usually asks "Siap lihat blueprint?"
+        // So we wait for user simple Yes/No.
+      },
+    );
+  }
+
+  Future<void> _onSendMessage([String? forcedMessage]) async {
+    final text = forcedMessage ?? _chatController.text.trim();
     if (text.isEmpty) return;
 
     _chatController.clear();
 
-    // Check if user is agreeing
-    final agreementKeywords = [
-      'setuju',
-      'iya',
-      'ya',
-      'ok',
-      'oke',
-      'yes',
-      'agree',
-      'sesuai',
-      'lanjut',
-      'gas',
-    ];
-    final isAgreement = agreementKeywords.any(
-      (k) => text.toLowerCase().contains(k),
-    );
-
     setState(() {
       _messages.add({'text': text, 'isUser': true});
       _isAiLoading = true;
+      // Removed: _quickReplies = [];
     });
 
-    try {
-      final reply = await _goalsService.sendGoalSetupMessage(text);
-      if (mounted) {
-        setState(() => _isAiLoading = false);
+    // === CONVERSATIONAL LOGIC ===
+    if (_isWaitingForTime) {
+      // Case: User replied to "How much time per day?"
+      // Logic: Combine Original Goal + Time Constraints -> Send back to Strategy Advisor
+      setState(() {
+        _isWaitingForTime = false; // Reset state
+        _loadingText = "Menghitung ulang...";
+      });
 
-        // Check for error response
+      try {
+        // We assume the first message was the goal. If not, we might need to store _originalGoal text.
+        // For simplicity let's use _currentGoal if it was set, or grab from first message.
+        // Better: Store original raw goal in a variable if needed.
+        // BUT: _currentGoal should hold it.
+
+        // Call Strategy Advisor again with constraints
+        final strategyData = await _goalsService.getStrategyAdvice(
+          _currentGoal,
+          text,
+        );
+
+        if (mounted) {
+          setState(() => _isAiLoading = false);
+
+          final action = strategyData['action'] as String?;
+          final reply = strategyData['reply'] as String? ?? "Oke.";
+          final options =
+              (strategyData['options'] as List?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              [];
+
+          // Removed: setState(() => _quickReplies = options);
+
+          if (action == 'NEGOTIATE') {
+            if (strategyData['recommendation'] != null) {
+              // Keep the recommendation data available but we rely on the textual reply
+            }
+          } else if (action == 'PROCEED') {
+            _handleProceedState(strategyData, _currentGoal);
+            return; // Reply handled by helper
+          }
+
+          _startTypingAnimation(reply, options: options);
+        }
+      } catch (e) {
+        if (mounted) setState(() => _isAiLoading = false);
+      }
+      return;
+    }
+
+    // Normal Chat / Handshake Logic
+    try {
+      final responseMap = await _goalsService.sendGoalSetupMessage(text);
+
+      final replyText = responseMap['reply'] as String? ?? "Oke.";
+      final intent = responseMap['intent'] as String? ?? "DISCUSSION";
+      final options =
+          (responseMap['options'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [];
+
+      if (mounted) {
+        setState(() {
+          _isAiLoading = false;
+          // Removed: _quickReplies = options;
+        });
+
+        // Check for error response (fallback check)
         final isErrorResponse =
-            reply.toLowerCase().contains('maaf') ||
-            reply.toLowerCase().contains('error') ||
-            reply.toLowerCase().contains('sibuk') ||
-            reply.toLowerCase().contains('coba lagi');
+            replyText.toLowerCase().contains('maaf') ||
+            replyText.toLowerCase().contains('error') ||
+            replyText.toLowerCase().contains('sibuk');
+
+        // AGREEMENT CHECK VIA AI INTENT
+        final isAgreement = (intent == 'AGREEMENT');
 
         // Start typing animation with callback for agreement
         _startTypingAnimation(
-          reply,
+          replyText,
+          options: options,
           onComplete: () {
             if (isAgreement && _currentGoal.isNotEmpty && !isErrorResponse) {
               setState(() => _showBlueprintButton = true);
@@ -527,91 +613,171 @@ class _GoalsScreenState extends State<GoalsScreen>
         return _buildMessageBubble(
           message['text'] as String,
           message['isUser'] as bool,
+          options: (message['options'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList(),
         );
       },
     );
   }
 
-  Widget _buildMessageBubble(String text, bool isUser) {
+  Widget _buildMessageBubble(
+    String text,
+    bool isUser, {
+    List<String>? options,
+  }) {
+    // Only show options if it's NOT the user and options are available
+    final showOptions =
+        !isUser &&
+        options != null &&
+        options.isNotEmpty &&
+        !_showBlueprintButton;
+
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.75,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: isUser
-              ? AppColors.pastelYellow.withOpacity(0.6)
-              : Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(20),
-            topRight: const Radius.circular(20),
-            bottomLeft: Radius.circular(isUser ? 20 : 4),
-            bottomRight: Radius.circular(isUser ? 4 : 20),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: (isUser ? AppColors.pastelYellow : Colors.black)
-                  .withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+      child: Column(
+        crossAxisAlignment: isUser
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.75,
             ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: isUser
+                  ? AppColors.pastelYellow.withOpacity(0.6)
+                  : Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(20),
+                topRight: const Radius.circular(20),
+                bottomLeft: Radius.circular(isUser ? 20 : 4),
+                bottomRight: Radius.circular(isUser ? 4 : 20),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: (isUser ? AppColors.pastelYellow : Colors.black)
+                      .withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: MarkdownBody(
+              data: text,
+              selectable: true,
+              styleSheet: MarkdownStyleSheet(
+                p: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                  color: AppColors.dark,
+                  height: 1.5,
+                  fontFamily: 'Outfit',
+                ),
+                h1: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.dark,
+                  height: 1.4,
+                ),
+                h2: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.dark,
+                  height: 1.4,
+                ),
+                h3: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.dark,
+                  height: 1.4,
+                ),
+                strong: const TextStyle(fontWeight: FontWeight.w700),
+                em: const TextStyle(fontStyle: FontStyle.italic),
+                listBullet: TextStyle(
+                  color: AppColors.dark.withOpacity(0.6),
+                  fontSize: 14,
+                ),
+                blockSpacing: 8,
+                listIndent: 20,
+                blockquote: TextStyle(
+                  color: AppColors.dark.withOpacity(0.7),
+                  fontStyle: FontStyle.italic,
+                ),
+                code: TextStyle(
+                  backgroundColor: AppColors.dark.withOpacity(0.05),
+                  fontFamily: 'monospace',
+                  fontSize: 13,
+                ),
+                codeblockDecoration: BoxDecoration(
+                  color: AppColors.dark.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ),
+
+          // Render Chips directly in the bubble stream
+          if (showOptions) ...[
+            (() {
+              final filteredOptions = options
+                  .where((o) => o.toLowerCase() != 'lihat blueprint')
+                  .toList();
+              if (filteredOptions.isEmpty) return const SizedBox.shrink();
+
+              return TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: const Duration(milliseconds: 600),
+                curve: Curves.easeOutBack,
+                builder: (context, value, child) {
+                  return Opacity(
+                    opacity: value.clamp(0.0, 1.0),
+                    child: Transform.translate(
+                      offset: Offset(0, 20 * (1 - value)),
+                      child: child,
+                    ),
+                  );
+                },
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 16, left: 4),
+                  width: MediaQuery.of(context).size.width * 0.75,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: filteredOptions.map((option) {
+                      return ActionChip(
+                        label: Text(
+                          option,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        backgroundColor: Colors.white,
+                        surfaceTintColor: Colors.white,
+                        elevation: 1,
+                        padding: EdgeInsets.zero,
+                        labelPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          side: const BorderSide(
+                            color: AppColors.primary,
+                            width: 1,
+                          ),
+                        ),
+                        onPressed: () => _onSendMessage(option),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              );
+            }()),
           ],
-        ),
-        child: MarkdownBody(
-          data: text,
-          selectable: true,
-          styleSheet: MarkdownStyleSheet(
-            p: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
-              color: AppColors.dark,
-              height: 1.5,
-              fontFamily: 'Outfit',
-            ),
-            h1: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: AppColors.dark,
-              height: 1.4,
-            ),
-            h2: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: AppColors.dark,
-              height: 1.4,
-            ),
-            h3: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: AppColors.dark,
-              height: 1.4,
-            ),
-            strong: const TextStyle(fontWeight: FontWeight.w700),
-            em: const TextStyle(fontStyle: FontStyle.italic),
-            listBullet: TextStyle(
-              color: AppColors.dark.withOpacity(0.6),
-              fontSize: 14,
-            ),
-            blockSpacing: 8,
-            listIndent: 20,
-            blockquote: TextStyle(
-              color: AppColors.dark.withOpacity(0.7),
-              fontStyle: FontStyle.italic,
-            ),
-            code: TextStyle(
-              backgroundColor: AppColors.dark.withOpacity(0.05),
-              fontFamily: 'monospace',
-              fontSize: 13,
-            ),
-            codeblockDecoration: BoxDecoration(
-              color: AppColors.dark.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -838,29 +1004,32 @@ class _GoalsScreenState extends State<GoalsScreen>
   }
 
   Widget _buildBlueprintButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: ElevatedButton(
-        onPressed: _onOpenBlueprint,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.pastelYellow,
-          foregroundColor: AppColors.dark,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(28),
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.auto_awesome, size: 20),
-            const SizedBox(width: 8),
-            const Text(
-              'Lihat Blueprint Strategy',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 5, 16, 16),
+      child: SizedBox(
+        width: double.infinity,
+        height: 56,
+        child: ElevatedButton(
+          onPressed: _onOpenBlueprint,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.pastelYellow,
+            foregroundColor: AppColors.dark,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(28),
             ),
-          ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.auto_awesome, size: 20),
+              const SizedBox(width: 8),
+              const Text(
+                'Lihat Blueprint Strategy',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -908,73 +1077,68 @@ class _GoalsScreenState extends State<GoalsScreen>
     }
   }
 
+  // Removed: Widget _buildQuickReplies() { ... }
+
   Widget _buildChatInputRow() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        // Text input
-        Expanded(
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 56),
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(
-                color: AppColors.dark.withOpacity(0.08),
-                width: 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 5, 16, 16),
+      // Removed color: Colors.white per user request
+      child: Row(
+        crossAxisAlignment:
+            CrossAxisAlignment.end, // Align to bottom as text grows
+        children: [
+          Expanded(
             child: TextField(
               controller: _chatController,
               minLines: 1,
-              maxLines: 5,
-              style: const TextStyle(fontSize: 16, color: AppColors.dark),
+              maxLines: 5, // Allow vertical expansion up to 5 lines
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.newline,
               decoration: InputDecoration(
-                border: InputBorder.none,
-                hintText: 'Ask about your strategy...',
-                hintStyle: TextStyle(
-                  fontSize: 16,
-                  color: AppColors.dark.withOpacity(0.3),
+                hintText: 'Tulis balasan...',
+                hintStyle: TextStyle(color: Colors.grey[400]),
+                filled: true,
+                fillColor: Colors.grey[100],
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
                 ),
-                contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    24,
+                  ), // Slightly softer radius for multiline
+                  borderSide: BorderSide.none,
+                ),
               ),
+              // onSubmitted removed to allow "Enter" for new line. Use send button.
             ),
           ),
-        ),
-        const SizedBox(width: 12),
-        // Send button (circular)
-        GestureDetector(
-          onTap: _onSendMessage,
-          child: Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: AppColors.pastelYellow,
-              borderRadius: BorderRadius.circular(28),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.pastelYellow.withOpacity(0.4),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.arrow_forward,
-              color: AppColors.dark,
-              size: 24,
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: () => _onSendMessage(),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: const BoxDecoration(
+                color: AppColors.pastelYellow,
+                shape: BoxShape.circle,
+              ),
+              child: _isAiLoading
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: AppColors.dark,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.arrow_forward_rounded,
+                      color: AppColors.dark,
+                    ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

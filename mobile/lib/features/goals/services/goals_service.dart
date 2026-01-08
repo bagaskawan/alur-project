@@ -48,7 +48,8 @@ class GoalsService {
   }
 
   /// Send a message in the GOALS_SETUP mode
-  Future<String> sendGoalSetupMessage(String message) async {
+  /// Returns a Map with 'reply' and 'intent' (AGREEMENT/DISCUSSION)
+  Future<Map<String, dynamic>> sendGoalSetupMessage(String message) async {
     try {
       final response = await _apiService.post(
         '/api/v1/chat/send', // Verify endpoint, previously used /api/v1/chat/send
@@ -56,7 +57,21 @@ class GoalsService {
       );
 
       if (response.isSuccess && response.data != null) {
-        return response.data['reply'] ?? '';
+        // Backend now returns JSON string in 'reply' field
+        String jsonStr = response.data['reply'] as String;
+
+        // Clean markdown if present
+        jsonStr = jsonStr
+            .replaceAll('```json', '')
+            .replaceAll('```', '')
+            .trim();
+
+        try {
+          return jsonDecode(jsonStr) as Map<String, dynamic>;
+        } catch (parseError) {
+          // Fallback for types or legacy responses
+          return {'reply': jsonStr, 'intent': 'DISCUSSION'};
+        }
       }
       throw Exception(response.message ?? 'Failed to send message');
     } catch (e) {
@@ -116,31 +131,44 @@ class GoalsService {
     }
   }
 
-  /// Get strategy advice
-  Future<Map<String, dynamic>> getStrategyAdvice(String goal) async {
+  /// Get strategy advice with negotiation capabilities
+  Future<Map<String, dynamic>> getStrategyAdvice(
+    String goal,
+    String constraints,
+  ) async {
     try {
+      // Gabungkan goal dan constraints agar dikirim ke prompt AI
+      // Contoh input: "Jadi AI Engineer. Saya cuma punya waktu 2 jam sehari setelah ngojek."
+      final fullMessage = "$goal. Kondisi/Batasan: $constraints";
+
       final response = await _apiService.post(
         '/api/v1/chat/send',
-        body: {'message': goal, 'mode': 'STRATEGY_ADVISOR'},
+        body: {'message': fullMessage, 'mode': 'STRATEGY_ADVISOR'},
       );
 
-      if (response.isSuccess &&
-          response.data != null &&
-          response.data['reply'] != null) {
+      if (response.isSuccess && response.data != null) {
+        // Ambil string reply yang berisi JSON dari service.py
         String jsonStr = response.data['reply'] as String;
+
+        // Bersihkan markdown jika ada
         jsonStr = jsonStr
             .replaceAll('```json', '')
             .replaceAll('```', '')
             .trim();
-        return _parseJsonLoose(jsonStr);
+
+        // Decode menjadi Map lengkap
+        return jsonDecode(jsonStr) as Map<String, dynamic>;
       }
-      throw Exception('Failed to get strategy');
+      throw Exception('Gagal mengambil strategi');
     } catch (e) {
       print('Strategy Error: $e');
-      // Fallback
+      // Return fallback error yang aman
       return {
-        'recommended_method': 'Sprint Mode',
-        'why': 'Default fallback due to error',
+        'analysis': {'feasibility_status': 'ERROR'},
+        'recommendation': {
+          'strategy_name': 'Manual Setup',
+          'reasoning': 'Maaf, AI sedang sibuk. Silakan buat plan manual.',
+        },
       };
     }
   }
