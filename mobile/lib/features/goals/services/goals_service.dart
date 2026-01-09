@@ -1,5 +1,6 @@
 import '../../../core/services/api_service.dart';
 import 'dart:convert';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Service for handling goal-related AI operations
 class GoalsService {
@@ -218,6 +219,75 @@ class GoalsService {
           {'phase_name': 'Phase 1', 'focus': 'Getting Started', 'tasks': []},
         ],
       };
+    }
+  }
+
+  Future<bool> saveFinalBlueprint({
+    required String mainGoalTitle,
+    required String strategyMethod,
+    required DateTime startDate,
+    required DateTime endDate,
+    required List<dynamic> phasesData, // List of phases dari JSON AI
+  }) async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) throw Exception("User not logged in");
+
+      // Format Tanggal ke String (YYYY-MM-DD)
+      String formatDate(DateTime dt) =>
+          "${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}";
+
+      final body = {
+        "user_id": userId,
+        "main_goal_title": mainGoalTitle,
+        "strategy_method": strategyMethod,
+        "start_date": formatDate(startDate),
+        "end_date": formatDate(endDate),
+        "phases": phasesData.map((phase) {
+          // Mapping data dari AI format ke Backend Schema format
+          return {
+            "phase_name": phase['phase_name'] ?? "Phase",
+            "focus": phase['focus'] ?? "",
+            "tasks": (phase['tasks'] as List? ?? []).map((t) {
+              return {
+                "title": t['title'] ?? "Untitled Task",
+                "estimated_duration": 60,
+                "energy_required": "MEDIUM",
+              };
+            }).toList(),
+          };
+        }).toList(),
+      };
+
+      final response = await _apiService.post(
+        '/api/v1/goals/blueprint/save',
+        body: body,
+      );
+
+      return response.isSuccess;
+    } catch (e) {
+      print("Save Blueprint Error: $e");
+      return false;
+    }
+  }
+
+  /// Fetch the current active goal/blueprint
+  Future<Map<String, dynamic>?> getCurrentGoal() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return null;
+
+      final response = await _apiService.get(
+        '/api/v1/goals/current?user_id=$userId',
+      );
+
+      if (response.isSuccess && response.data != null) {
+        return response.data;
+      }
+      return null;
+    } catch (e) {
+      print("Fetch Current Goal Error: $e");
+      return null;
     }
   }
 }

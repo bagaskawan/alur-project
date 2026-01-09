@@ -3,6 +3,8 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../chat/screens/chat_screen.dart'; // Pastikan import ini ada
 import '../../goals/screens/goals_screen.dart';
+import '../../goals/services/goals_service.dart';
+import '../../profile/screens/profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,27 +14,43 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // State Data
   String? _userName;
   int _selectedNavIndex = 0;
+  bool _isLoading = true;
+  Map<String, dynamic>? _activeGoal;
+
+  // Service
+  final _goalsService = GoalsService();
 
   // Simulasi Data (Nanti diganti dengan data dari API / Database)
   // Ubah list ini jadi kosong [] untuk mengetes tampilan User Baru
-  final List<Map<String, dynamic>> _tasks = [
-    // {
-    //   'title': 'Morning Briefing',
-    //   'time': '09:00 - 09:30',
-    //   'isDone': true,
-    //   'color': 'green',
-    // },
-  ];
+  final List<Map<String, dynamic>> _tasks = [];
 
   // Cek apakah user punya data atau masih baru
-  bool get _isNewUser => _tasks.isEmpty;
+  bool get _isNewUser => !_isLoading && _activeGoal == null;
 
   @override
   void initState() {
     super.initState();
     _loadUserName();
+    _loadDashboardData();
+  }
+
+  Future<void> _loadDashboardData() async {
+    setState(() => _isLoading = true);
+    final data = await _goalsService.getCurrentGoal();
+    if (mounted) {
+      setState(() {
+        // data format: { has_active_plan: true, cycle: {...}, main_goal: {...} }
+        if (data != null && data['has_active_plan'] == true) {
+          _activeGoal = data;
+        } else {
+          _activeGoal = null;
+        }
+        _isLoading = false;
+      });
+    }
   }
 
   void _loadUserName() {
@@ -68,7 +86,7 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const GoalsScreen()),
-    );
+    ).then((_) => _loadDashboardData()); // Refresh when back
   }
 
   @override
@@ -89,7 +107,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 24),
 
                     // LOGIC SWITCH: Tampilkan kartu beda buat user baru
-                    if (_isNewUser) _buildNewUserHero() else _buildFocusHero(),
+                    if (_isLoading)
+                      const Center(child: CircularProgressIndicator())
+                    else if (_isNewUser)
+                      _buildNewUserHero()
+                    else
+                      _buildFocusHero(),
 
                     const SizedBox(height: 20),
 
@@ -102,7 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 24),
 
                     // LOGIC SWITCH: Timeline vs Empty State
-                    if (_isNewUser)
+                    if (_isNewUser || _tasks.isEmpty)
                       _buildEmptyStatePlaceholder()
                     else
                       _buildTimeline(),
@@ -123,6 +146,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ... (Header Widget sama seperti sebelumnya) ...
   Widget _buildHeader() {
+    final user = SupabaseService.currentUser;
+    final avatarUrl = user?.userMetadata?['avatar_url'];
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -147,15 +173,34 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: AppColors.pastelYellow,
-            shape: BoxShape.circle,
-            border: Border.all(color: AppColors.dark, width: 2),
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ProfileScreen()),
+            ).then((_) {
+              // Refresh home data in case profile settings changed (e.g. name/avatar)
+              _loadUserName();
+            });
+          },
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppColors.pastelYellow,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.dark, width: 2),
+              image: avatarUrl != null
+                  ? DecorationImage(
+                      image: NetworkImage(avatarUrl),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+            ),
+            child: avatarUrl == null
+                ? const Icon(Icons.person, color: AppColors.dark)
+                : null,
           ),
-          child: const Icon(Icons.person, color: AppColors.dark),
         ),
       ],
     );
@@ -163,6 +208,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // === HERO CARD 1: MAIN FOCUS (Untuk User Lama) ===
   Widget _buildFocusHero() {
+    final title = _activeGoal?['main_goal']?['title'] ?? 'Your Goal';
+    // final progress = _activeGoal?['main_goal']?['progress'] ?? 0;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -190,9 +238,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          const Text(
-            'Complete Backend\nIntegration',
-            style: TextStyle(
+          Text(
+            title, // [DYNAMIC DATA]
+            style: const TextStyle(
               fontSize: 26,
               fontWeight: FontWeight.bold,
               color: AppColors.dark,
@@ -212,7 +260,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    '10:00 - 12:00',
+                    'On Track',
                     style: TextStyle(
                       fontSize: 13,
                       color: AppColors.dark.withOpacity(0.8),
@@ -229,7 +277,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text('Start Focus'),
+                child: const Text('View Plan'),
               ),
             ],
           ),

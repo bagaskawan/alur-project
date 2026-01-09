@@ -6,7 +6,6 @@ import 'core/services/supabase_service.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/home/screens/home_screen.dart';
 import 'features/onboarding/screens/onboarding_chat_screen.dart';
-import 'features/goals/screens/goals_screen.dart';
 import 'features/onboarding/screens/language_selection_screen.dart';
 import 'features/onboarding/services/onboarding_service.dart';
 
@@ -165,24 +164,20 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 
   Widget _getScreen() {
-    // === TEMPORARY: Langsung ke GoalsScreen untuk testing ===
-    return const GoalsScreen(key: ValueKey('goals'));
+    if (_hasCompletedOnboarding) {
+      return const HomeScreen(key: ValueKey('home'));
+    }
 
-    // === ORIGINAL CODE (uncomment setelah testing) ===
-    // if (_hasCompletedOnboarding) {
-    //   return const HomeScreen(key: ValueKey('home'));
-    // }
-    //
-    // if (!_hasSelectedLanguage) {
-    //   return LanguageSelectionScreen(
-    //     key: const ValueKey('language'),
-    //     onComplete: _handleLanguageComplete,
-    //   );
-    // }
-    //
-    // return OnboardingChatScreen(
-    //   key: const ValueKey('onboarding'),
-    //   onComplete: _handleOnboardingComplete,
-    // );
+    if (!_hasSelectedLanguage) {
+      return LanguageSelectionScreen(
+        key: const ValueKey('language'),
+        onComplete: _handleLanguageComplete,
+      );
+    }
+
+    return OnboardingChatScreen(
+      key: const ValueKey('onboarding'),
+      onComplete: _handleOnboardingComplete,
+    );
   }
 }

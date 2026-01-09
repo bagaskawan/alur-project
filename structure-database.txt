@@ -38,6 +38,8 @@ CREATE TABLE public.goals (
   status text DEFAULT 'IN_PROGRESS'::item_status,
   parent_goal_id uuid,
   created_at timestamp with time zone DEFAULT now(),
+  framework_type text,
+  framework_data jsonb DEFAULT '{}'::jsonb,
   CONSTRAINT goals_pkey PRIMARY KEY (id),
   CONSTRAINT goals_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
   CONSTRAINT goals_cycle_id_fkey FOREIGN KEY (cycle_id) REFERENCES public.growth_cycles(id),
@@ -47,7 +49,7 @@ CREATE TABLE public.growth_cycles (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   title text NOT NULL,
-  type USER-DEFINED DEFAULT 'PROJECT_180'::cycle_type,
+  type text,
   start_date date NOT NULL,
   end_date date NOT NULL,
   is_active boolean DEFAULT true,
@@ -80,14 +82,6 @@ CREATE TABLE public.habits (
   CONSTRAINT habits_pkey PRIMARY KEY (id),
   CONSTRAINT habits_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
   CONSTRAINT habits_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id)
-);
-CREATE TABLE public.harada_grids (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  goal_id uuid NOT NULL,
-  grid_content jsonb DEFAULT '{}'::jsonb,
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT harada_grids_pkey PRIMARY KEY (id),
-  CONSTRAINT harada_grids_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id)
 );
 CREATE TABLE public.journals (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

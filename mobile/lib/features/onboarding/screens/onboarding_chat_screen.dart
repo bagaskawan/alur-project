@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../../core/constants/app_colors.dart';
 import '../models/chat_message.dart';
 import '../services/onboarding_service.dart';
-import '../widgets/ai_message_bubble.dart';
-import '../widgets/user_message_bubble.dart';
-import '../widgets/chat_input_field.dart';
 import '../widgets/typing_indicator.dart';
 
 /// Onboarding chat screen for collecting user profile data through
@@ -149,128 +147,321 @@ class _OnboardingChatScreenState extends State<OnboardingChatScreen>
     super.build(context); // Required for AutomaticKeepAliveClientMixin
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.surface,
-        elevation: 0,
-        title: const Text(
-          'Onboarding Chat',
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Custom Header
+            _buildHeader(),
+
+            // Chat messages
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 16,
+                ),
+                // +1 for intro section at top
+                itemCount: 1 + _messages.length + (_isTyping ? 1 : 0),
+                itemBuilder: (context, index) {
+                  // Index 0 = Intro Section
+                  if (index == 0) {
+                    return _buildIntroSection();
+                  }
+
+                  // Adjust index for messages (offset by 1 due to intro)
+                  final messageIndex = index - 1;
+
+                  // Show typing indicator at the end
+                  if (_isTyping && messageIndex == _messages.length) {
+                    return _buildTypingIndicatorBubble();
+                  }
+
+                  final message = _messages[messageIndex];
+                  return _buildMessageBubble(
+                    message.content,
+                    message.sender == MessageSender.user,
+                  );
+                },
+              ),
+            ),
+
+            // Bottom Area (Chips + Input or Button)
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.background.withOpacity(0.0),
+                    AppColors.background,
+                  ],
+                  stops: const [0.0, 0.2],
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_showGetStartedButton)
+                    _buildGetStartedButton()
+                  else ...[
+                    if (!_isLoading && !_isTyping) _buildChoiceChips(),
+                    const SizedBox(height: 16),
+                    _buildChatInputArea(),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 20),
+      child: Center(
+        child: Text(
+          'Onboarding Session',
           style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 18,
+            color: AppColors.dark,
+            fontSize: 16,
             fontWeight: FontWeight.w600,
           ),
         ),
-        centerTitle: true,
       ),
-      body: Column(
-        children: [
-          // Chat messages
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              itemCount: _messages.length + (_isTyping ? 1 : 0),
-              itemBuilder: (context, index) {
-                // Show typing indicator at the end
-                if (_isTyping && index == _messages.length) {
-                  return const TypingIndicator();
-                }
+    );
+  }
 
-                final message = _messages[index];
-                if (message.sender == MessageSender.ai) {
-                  // Show label only for first AI message or after user message
-                  final showLabel =
-                      index == 0 ||
-                      (index > 0 &&
-                          _messages[index - 1].sender == MessageSender.user);
-                  return AiMessageBubble(
-                    message: message.content,
-                    showLabel: showLabel,
-                  );
-                } else {
-                  return UserMessageBubble(
-                    message: message.content,
-                    timestamp: message.timestamp,
-                  );
-                }
-              },
+  Widget _buildIntroSection() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.pastelBlue.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text('👋', style: TextStyle(fontSize: 20)),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Selamat datang!',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.dark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Sebelum mulai, aku ingin kenalan dulu denganmu. '
+            'Aku akan bertanya beberapa hal sederhana untuk memahami '
+            'kebiasaan dan preferensimu.',
+            style: TextStyle(fontSize: 14, height: 1.6, color: AppColors.dark),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '🔒 Tenang, data kamu hanya digunakan untuk memberikan '
+            'rekomendasi yang lebih personal dan tidak akan dibagikan ke pihak lain.',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.5,
+              color: AppColors.textSecondary,
+              fontStyle: FontStyle.italic,
             ),
           ),
-
-          // Get Started button (shown when onboarding is complete)
-          if (_showGetStartedButton) _buildGetStartedButton(),
-
-          // Choice chips (shown when AI is waiting for response)
-          if (!_showGetStartedButton && !_isLoading && !_isTyping)
-            _buildChoiceChips(),
-
-          // Input field (hidden when showing Get Started button)
-          if (!_showGetStartedButton)
-            ChatInputField(
-              controller: _textController,
-              onSend: _handleSend,
-              isLoading: _isLoading,
-            ),
         ],
       ),
     );
   }
 
-  /// Build horizontal scrollable choice chips
-  Widget _buildChoiceChips() {
-    final options = _onboardingService.getOptionsForCurrentStage();
-    if (options == null || options.isEmpty) return const SizedBox.shrink();
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border(top: BorderSide(color: Colors.grey.shade100)),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: options.map((option) {
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ActionChip(
-                label: Text(option),
-                labelStyle: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-                backgroundColor: AppColors.background,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(color: Colors.grey.shade300),
-                ),
-                onPressed: () {
-                  // Send chip text as user message
-                  _textController.text = option;
-                  _handleSend();
-                },
-              ),
-            );
-          }).toList(),
+  Widget _buildMessageBubble(String text, bool isUser) {
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.8,
         ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isUser ? AppColors.pastelYellow : Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(20),
+            topRight: const Radius.circular(20),
+            bottomLeft: Radius.circular(isUser ? 20 : 4),
+            bottomRight: Radius.circular(isUser ? 4 : 20),
+          ),
+        ),
+        child: isUser
+            ? Text(
+                text,
+                style: const TextStyle(
+                  fontSize: 15,
+                  height: 1.5,
+                  color: AppColors.dark,
+                ),
+              )
+            : MarkdownBody(
+                data: text,
+                styleSheet: MarkdownStyleSheet(
+                  p: const TextStyle(
+                    fontSize: 15,
+                    height: 1.5,
+                    color: AppColors.dark,
+                  ),
+                  strong: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.dark,
+                  ),
+                  em: const TextStyle(
+                    fontStyle: FontStyle.italic,
+                    color: AppColors.dark,
+                  ),
+                ),
+              ),
       ),
     );
   }
 
+  Widget _buildTypingIndicatorBubble() {
+    return const Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: EdgeInsets.only(left: 8, bottom: 16),
+        child: TypingIndicator(),
+      ),
+    );
+  }
+
+  Widget _buildChoiceChips() {
+    final options = _onboardingService.getOptionsForCurrentStage();
+    if (options == null || options.isEmpty) return const SizedBox.shrink();
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: options.map((option) {
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ActionChip(
+              label: Text(option),
+              labelStyle: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.primary, // Blue text
+              ),
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.white,
+              elevation: 2,
+              shadowColor: Colors.black.withOpacity(0.1),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(color: AppColors.primary.withOpacity(0.2)),
+              ),
+              onPressed: () {
+                _textController.text = option;
+                _handleSend();
+              },
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildChatInputArea() {
+    return Row(
+      children: [
+        // Input Field (separate container)
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(28),
+            ),
+            child: TextField(
+              controller: _textController,
+              decoration: const InputDecoration(
+                hintText: 'Type your answer...',
+                hintStyle: TextStyle(color: Colors.grey, fontSize: 15),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 16,
+                ),
+                isDense: true,
+              ),
+              style: const TextStyle(fontSize: 15),
+              maxLines: 4,
+              minLines: 1,
+              textCapitalization: TextCapitalization.sentences,
+              onSubmitted: (_) => _handleSend(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        // Send Button (separate)
+        GestureDetector(
+          onTap: _isLoading ? null : _handleSend,
+          child: Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: _isLoading ? Colors.grey[300] : AppColors.pastelYellow,
+              shape: BoxShape.circle,
+            ),
+            child: _isLoading
+                ? const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: CircularProgressIndicator(
+                      color: AppColors.dark,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Icon(
+                    Icons.arrow_upward,
+                    color: AppColors.dark,
+                    size: 24,
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildGetStartedButton() {
-    return Container(
-      margin: const EdgeInsets.all(16),
+    return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
         onPressed: _isLoading ? null : _handleComplete,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF4988C4), // Blue send button color
+          backgroundColor: AppColors.dark,
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          padding: const EdgeInsets.symmetric(vertical: 18),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(16),
           ),
-          elevation: 0,
+          elevation: 4,
+          shadowColor: AppColors.dark.withOpacity(0.3),
         ),
         child: _isLoading
             ? const SizedBox(
@@ -283,7 +474,11 @@ class _OnboardingChatScreenState extends State<OnboardingChatScreen>
               )
             : const Text(
                 'Get Started',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                ),
               ),
       ),
     );

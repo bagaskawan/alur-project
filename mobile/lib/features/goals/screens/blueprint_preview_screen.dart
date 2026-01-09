@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
+import '../services/goals_service.dart';
+import '../../home/screens/home_screen.dart';
 
 class BlueprintPreviewScreen extends StatefulWidget {
   final String goalTitle;
@@ -90,7 +92,7 @@ class _BlueprintPreviewScreenState extends State<BlueprintPreviewScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      'Geser untuk fase selanjutnya',
+                      'Swipe for next pillar',
                       style: TextStyle(
                         fontSize: 12,
                         color: AppColors.dark.withOpacity(0.5),
@@ -334,17 +336,63 @@ class _BlueprintPreviewScreenState extends State<BlueprintPreviewScreen> {
     );
   }
 
-  void _onApprove() {
-    // TODO: Save to database via API
-    // For now, just navigate back to home
+  Future<void> _onApprove() async {
+    // 1. Show Loading Indicator
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Blueprint approved! Saving to your plan...'),
-        backgroundColor: Colors.green,
+        content: Text('Menyimpan Blueprint...'),
+        duration: Duration(seconds: 1),
       ),
     );
 
-    // Navigate to home (pop all screens)
-    Navigator.of(context).popUntil((route) => route.isFirst);
+    // 2. Call Service to Save
+    final goalsService = GoalsService();
+
+    // Estimate dates (simple logic for MVP: Start today, End based on TimeHorizon)
+    final now = DateTime.now();
+    DateTime endDate = now.add(const Duration(days: 90)); // Default 3 months
+
+    // Simple parser for "3 Bulan" / "6 Bulan"
+    if (widget.timeHorizon.toLowerCase().contains("bulan")) {
+      final parts = widget.timeHorizon.trim().split(" ");
+      if (parts.isNotEmpty) {
+        final months = int.tryParse(parts[0]) ?? 3;
+        endDate = now.add(Duration(days: months * 30));
+      }
+    }
+
+    final success = await goalsService.saveFinalBlueprint(
+      mainGoalTitle: widget.goalTitle,
+      strategyMethod:
+          "PROJECT_180", // Default for now, or pass from previous screen
+      startDate: now,
+      endDate: endDate,
+      phasesData: widget.blueprintData,
+    );
+
+    if (!mounted) return;
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Blueprint Berhasil Disimpan! 🚀'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      // Navigate to Home and clear stack
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          (route) => false,
+        );
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Gagal menyimpan blueprint. Coba lagi.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 }
