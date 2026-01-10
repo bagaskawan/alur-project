@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../models/chat_message.dart';
 import '../services/onboarding_service.dart';
 import '../widgets/typing_indicator.dart';
+import '../../../core/widgets/loading_dots.dart';
 
 /// Onboarding chat screen for collecting user profile data through
 /// a conversational AI interview
@@ -432,10 +433,7 @@ class _OnboardingChatScreenState extends State<OnboardingChatScreen>
             child: _isLoading
                 ? const Padding(
                     padding: EdgeInsets.all(14),
-                    child: CircularProgressIndicator(
-                      color: AppColors.dark,
-                      strokeWidth: 2,
-                    ),
+                    child: LoadingDots(size: 4),
                   )
                 : const Icon(
                     Icons.arrow_upward,
@@ -465,12 +463,9 @@ class _OnboardingChatScreenState extends State<OnboardingChatScreen>
         ),
         child: _isLoading
             ? const SizedBox(
-                width: 24,
+                width: 40,
                 height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
+                child: LoadingDots(size: 6, color: Colors.white),
               )
             : const Text(
                 'Get Started',

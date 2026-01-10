@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
+import '../../../core/widgets/loading_dots.dart';
 
 /// Language selection screen shown before onboarding
 /// Allows user to choose their preferred language
@@ -119,13 +120,8 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
                 child: _isLoading
                     ? const SizedBox(
                         height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.white,
-                          ),
-                        ),
+                        width: 40,
+                        child: LoadingDots(size: 4, color: Colors.white),
                       )
                     : const Text(
                         'Lanjutkan / Continue',

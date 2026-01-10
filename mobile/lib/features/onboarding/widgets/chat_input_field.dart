@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/widgets/loading_dots.dart';
 
 /// Floating capsule chat input field with send button
 /// Supports: Enter = Send, Shift+Enter = New Line (like WhatsApp/Telegram desktop)
@@ -128,10 +129,7 @@ class _ChatInputFieldState extends State<ChatInputField> {
                 child: widget.isLoading
                     ? Padding(
                         padding: const EdgeInsets.all(12),
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppColors.textSecondary.withOpacity(0.5),
-                        ),
+                        child: LoadingDots(size: 6),
                       )
                     : Icon(
                         Icons.arrow_upward_rounded,

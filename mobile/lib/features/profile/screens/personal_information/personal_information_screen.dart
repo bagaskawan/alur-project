@@ -314,7 +314,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? _buildSkeletonUI()
           : SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Column(
@@ -603,6 +603,86 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSkeletonUI() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 24),
+          // AVATAR SKELETON
+          Center(
+            child: Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          const SizedBox(height: 40),
+
+          // FORM FIELDS SKELETON
+          _buildFieldSkeleton(),
+          const SizedBox(height: 24),
+          _buildFieldSkeleton(),
+          const SizedBox(height: 32),
+
+          // PERSONALITY PROFILE SKELETON
+          Container(
+            width: 150,
+            height: 16,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            height: 300,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.03),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFieldSkeleton() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 80,
+          height: 14,
+          decoration: BoxDecoration(
+            color: Colors.grey[300],
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          height: 50,
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(50),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/constants/app_colors.dart';
 import 'core/services/supabase_service.dart';
+import 'core/widgets/loading_dots.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/home/screens/home_screen.dart';
 import 'features/onboarding/screens/onboarding_chat_screen.dart';
@@ -126,7 +127,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
           if (_isLoading) {
             return const Scaffold(
               backgroundColor: AppColors.background,
-              body: Center(child: CircularProgressIndicator()),
+              body: Center(child: LoadingDots(size: 12)),
             );
           }
 

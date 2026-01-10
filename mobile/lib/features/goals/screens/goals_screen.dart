@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../services/goals_service.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'blueprint_preview_screen.dart';
+import '../../../core/widgets/loading_dots.dart';
 
 class GoalsScreen extends StatefulWidget {
   final bool isNewUser;
@@ -100,7 +101,9 @@ class _GoalsScreenState extends State<GoalsScreen>
     _goalController.dispose();
     _chatController.dispose();
     _scrollController.dispose();
+    _scrollController.dispose();
     _transitionController.dispose();
+    super.dispose();
     super.dispose();
   }
 
@@ -807,18 +810,8 @@ class _GoalsScreenState extends State<GoalsScreen>
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  AppColors.dark.withOpacity(0.5),
-                ),
-              ),
-            ),
-            if (_loadingText.isNotEmpty) ...[
-              const SizedBox(width: 8),
+            SizedBox(width: 16, height: 16, child: LoadingDots(size: 4)),
+            if (_loadingText.isNotEmpty)
               Text(
                 _loadingText,
                 style: TextStyle(
@@ -826,37 +819,12 @@ class _GoalsScreenState extends State<GoalsScreen>
                   color: AppColors.dark.withOpacity(0.5),
                   fontStyle: FontStyle.italic,
                 ),
-              ),
-            ],
+              )
+            else
+              const LoadingDots(size: 6),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildDot(int index) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: const Duration(milliseconds: 600),
-      curve: Curves.easeInOut,
-      builder: (context, value, child) {
-        final double offset = (value + index * 0.3) % 1.0;
-        final double opacity = 0.3 + (0.7 * (1.0 - (offset - 0.5).abs() * 2));
-
-        return Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: AppColors.dark.withOpacity(opacity),
-            shape: BoxShape.circle,
-          ),
-        );
-      },
-      onEnd:
-          () {}, // Loop handled by parent implicitly if rebuilt, but TweenAnimationBuilder isn't looping by default.
-      // Better to use a simpler looping logic or just constant opacity for now to keep it simple as user asked for "bubble loading"
-      // Let's use a simpler static Loading indicator or a repeating animation controller if available.
-      // Since I can't easily add a new controller without refactoring big chunks, I'll use a standard Loading Indicator for simplicity but styled.
     );
   }
 
@@ -930,12 +898,7 @@ class _GoalsScreenState extends State<GoalsScreen>
                       const SizedBox(
                         width: 18,
                         height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            Color(0xFF8B5CF6),
-                          ),
-                        ),
+                        child: LoadingDots(size: 4, color: Color(0xFF8B5CF6)),
                       )
                     else
                       ShaderMask(
@@ -1126,10 +1089,7 @@ class _GoalsScreenState extends State<GoalsScreen>
                   ? const SizedBox(
                       width: 24,
                       height: 24,
-                      child: CircularProgressIndicator(
-                        color: AppColors.dark,
-                        strokeWidth: 2,
-                      ),
+                      child: LoadingDots(size: 4),
                     )
                   : const Icon(
                       Icons.arrow_forward_rounded,

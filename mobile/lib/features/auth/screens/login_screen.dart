@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
+import '../../../core/widgets/loading_dots.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -132,11 +133,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         child: _isLoading
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
+            ? const SizedBox(width: 40, height: 24, child: LoadingDots(size: 6))
             : Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -181,12 +178,9 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         child: _isLoading
             ? const SizedBox(
-                width: 24,
+                width: 40,
                 height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
+                child: LoadingDots(size: 6, color: Colors.white),
               )
             : Row(
                 mainAxisAlignment: MainAxisAlignment.center,

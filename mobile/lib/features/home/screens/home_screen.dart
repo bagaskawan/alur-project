@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
-import '../../chat/screens/chat_screen.dart'; // Pastikan import ini ada
-import '../../goals/screens/goals_screen.dart';
 import '../../goals/services/goals_service.dart';
 import '../../profile/screens/profile_screen.dart';
 
@@ -16,19 +14,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   // State Data
   String? _userName;
+  String? _avatarUrl;
   int _selectedNavIndex = 0;
   bool _isLoading = true;
   Map<String, dynamic>? _activeGoal;
 
   // Service
   final _goalsService = GoalsService();
-
-  // Simulasi Data (Nanti diganti dengan data dari API / Database)
-  // Ubah list ini jadi kosong [] untuk mengetes tampilan User Baru
-  final List<Map<String, dynamic>> _tasks = [];
-
-  // Cek apakah user punya data atau masih baru
-  bool get _isNewUser => !_isLoading && _activeGoal == null;
 
   @override
   void initState() {
@@ -42,7 +34,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final data = await _goalsService.getCurrentGoal();
     if (mounted) {
       setState(() {
-        // data format: { has_active_plan: true, cycle: {...}, main_goal: {...} }
         if (data != null && data['has_active_plan'] == true) {
           _activeGoal = data;
         } else {
@@ -61,32 +52,12 @@ class _HomeScreenState extends State<HomeScreen> {
           user.userMetadata?['name'] ??
           user.email?.split('@').first ??
           'User';
-      setState(() => _userName = metaName.toString().split(' ').first);
+      final avatar = user.userMetadata?['avatar_url'];
+      setState(() {
+        _userName = metaName.toString().split(' ').first;
+        _avatarUrl = avatar;
+      });
     }
-  }
-
-  String _getGreeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  }
-
-  // --- NAVIGATION LOGIC ---
-  void _openDailyChat() {
-    // Membuka Chat dengan Mode DAILY
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const ChatScreen(initialMode: 'DAILY')),
-    );
-  }
-
-  void _openGoalSetup() {
-    // Membuka Goals Screen untuk User Baru
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const GoalsScreen()),
-    ).then((_) => _loadDashboardData()); // Refresh when back
   }
 
   @override
@@ -106,32 +77,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     _buildHeader(),
                     const SizedBox(height: 24),
 
-                    // LOGIC SWITCH: Tampilkan kartu beda buat user baru
-                    if (_isLoading)
-                      const Center(child: CircularProgressIndicator())
-                    else if (_isNewUser)
-                      _buildNewUserHero()
-                    else
-                      _buildFocusHero(),
+                    // Green Task Summary Card
+                    _buildTaskSummaryCard(),
+                    const SizedBox(height: 16),
 
-                    const SizedBox(height: 20),
+                    // Beige Webinar Card
+                    _buildWebinarCard(),
+                    const SizedBox(height: 16),
 
-                    // PORTAL KE CHAT (Klik Bar ini langsung masuk Chat Room)
-                    GestureDetector(
-                      onTap: _openDailyChat,
-                      child: _buildAICommandBar(),
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // LOGIC SWITCH: Timeline vs Empty State
-                    if (_isNewUser || _tasks.isEmpty)
-                      _buildEmptyStatePlaceholder()
-                    else
-                      _buildTimeline(),
-
-                    const SizedBox(height: 24),
-                    _buildHabitsSection(),
+                    // Blue Habits Journal Card
+                    _buildHabitsJournalCard(),
                     const SizedBox(height: 100),
                   ],
                 ),
@@ -144,511 +99,465 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ... (Header Widget sama seperti sebelumnya) ...
   Widget _buildHeader() {
-    final user = SupabaseService.currentUser;
-    final avatarUrl = user?.userMetadata?['avatar_url'];
-
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${_getGreeting()}, ${_userName ?? 'User'}',
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: AppColors.dark,
+        // Welcome Text & Username
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Hi, ${_userName ?? 'David'}!',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "Let's conquer the day.",
-              style: const TextStyle(
-                fontSize: 14,
-                color: AppColors.textSecondary,
+              const SizedBox(height: 2),
+              const Text(
+                'Welcome back',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                  color: Colors.black54,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-        GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ProfileScreen()),
-            ).then((_) {
-              // Refresh home data in case profile settings changed (e.g. name/avatar)
-              _loadUserName();
-            });
-          },
-          child: Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: AppColors.pastelYellow,
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.dark, width: 2),
-              image: avatarUrl != null
-                  ? DecorationImage(
-                      image: NetworkImage(avatarUrl),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
-            ),
-            child: avatarUrl == null
-                ? const Icon(Icons.person, color: AppColors.dark)
+        // Notification Bell
+        Container(
+          width: 44,
+          height: 44,
+          margin: const EdgeInsets.only(right: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.notifications_outlined,
+            size: 22,
+            color: Colors.black54,
+          ),
+        ),
+        // Avatar
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.grey[300],
+            border: Border.all(color: AppColors.cardGreen, width: 2),
+            image: _avatarUrl != null
+                ? DecorationImage(
+                    image: NetworkImage(_avatarUrl!),
+                    fit: BoxFit.cover,
+                  )
                 : null,
           ),
+          child: _avatarUrl == null
+              ? Icon(Icons.person, size: 24, color: Colors.grey[600])
+              : null,
         ),
       ],
     );
   }
 
-  // === HERO CARD 1: MAIN FOCUS (Untuk User Lama) ===
-  Widget _buildFocusHero() {
-    final title = _activeGoal?['main_goal']?['title'] ?? 'Your Goal';
-    // final progress = _activeGoal?['main_goal']?['progress'] ?? 0;
-
+  // === GREEN TASK SUMMARY CARD ===
+  Widget _buildTaskSummaryCard() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColors.pastelPurple,
-        borderRadius: BorderRadius.circular(20),
+        color: AppColors.cardGreen,
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.4),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: const Text(
-              'MAIN FOCUS',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppColors.dark,
-                letterSpacing: 1,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Date Badge
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.calendar_today,
+                      size: 14,
+                      color: Colors.black87,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${DateTime.now().day} ${_getMonthName(DateTime.now().month)}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              // Action Buttons
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      color: Colors.black,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.more_horiz,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      color: Colors.black,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.add, color: Colors.white, size: 20),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Current tasks',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w400,
+              color: Colors.black54,
             ),
           ),
-          const SizedBox(height: 12),
-          Text(
-            title, // [DYNAMIC DATA]
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-              color: AppColors.dark,
-              height: 1.2,
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              const Text(
+                'You have ',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black87,
+                ),
+              ),
+              const Text(
+                '10',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Text(
+                'tasks',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Text(
+                      'High',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    SizedBox(width: 2),
+                    Text(
+                      '~',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'for today',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: Colors.black87,
             ),
           ),
-          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  // === BEIGE WEBINAR CARD ===
+  Widget _buildWebinarCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.cardBeige,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        children: [
+          // Date Badge (Circular)
+          Container(
+            width: 52,
+            height: 52,
+            decoration: const BoxDecoration(
+              color: Colors.black,
+              shape: BoxShape.circle,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                Text(
+                  '24',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+                Text(
+                  'Nov',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w400,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Content
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  'Webinar',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Implementation of habits.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w400,
+                    color: Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Action Icon
+          Container(
+            width: 36,
+            height: 36,
+            decoration: const BoxDecoration(
+              color: Colors.black,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.power_settings_new,
+              color: Colors.white,
+              size: 18,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // === BLUE HABITS JOURNAL CARD ===
+  Widget _buildHabitsJournalCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.cardBlue,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
-                children: [
-                  Icon(
-                    Icons.access_time,
-                    size: 18,
-                    color: AppColors.dark.withOpacity(0.7),
-                  ),
-                  const SizedBox(width: 6),
+                children: const [
+                  Icon(Icons.public, size: 18, color: Colors.black87),
+                  SizedBox(width: 8),
                   Text(
-                    'On Track',
+                    'Habits Journal',
                     style: TextStyle(
-                      fontSize: 13,
-                      color: AppColors.dark.withOpacity(0.8),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
                     ),
                   ),
                 ],
               ),
-              ElevatedButton(
-                onPressed: () {}, // Nanti ke Timer Screen
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.dark,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text('View Plan'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // === HERO CARD 2: NEW USER CALL TO ACTION ===
-  Widget _buildNewUserHero() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.pastelGreen, // Ganti warna jadi Hijau (Fresh)
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.dark,
-          width: 1.5,
-        ), // Tambah border biar tegas
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Start Your Journey 🚀',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: AppColors.dark,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            "You haven't set your big goals yet. Let's define your 'North Star' to get started.",
-            style: TextStyle(fontSize: 14, color: AppColors.dark),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _openGoalSetup, // KE CHAT MODE GOALS
-              icon: const Icon(Icons.map, size: 18),
-              label: const Text('Create My First Goal'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.dark,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // === AI COMMAND BAR (Sekarang Tappable) ===
-  Widget _buildAICommandBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: AppColors.dark, width: 1.5),
-        boxShadow: [
-          // Sedikit shadow biar kelihatan bisa diklik
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: const BoxDecoration(
-              color: AppColors.pastelYellow,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.auto_awesome,
-              size: 18,
-              color: AppColors.dark,
-            ),
-          ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Text(
-              'Chat with Alur...', // Teks lebih simple
-              style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
-            ),
-          ),
-          const Icon(Icons.send_rounded, color: AppColors.dark, size: 20),
-        ],
-      ),
-    );
-  }
-
-  // === EMPTY STATE PLACEHOLDER ===
-  Widget _buildEmptyStatePlaceholder() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.withOpacity(0.2)),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.calendar_today_outlined,
-            size: 40,
-            color: AppColors.textSecondary.withOpacity(0.5),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            "No tasks for today",
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            "Chat with Alur to schedule your day!",
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.textSecondary.withOpacity(0.7),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ... (Sisa fungsi Timeline & Habits sama persis, copy paste saja dari kode lamamu) ...
-  // === TIMELINE TASKS ===
-  Widget _buildTimeline() {
-    return Column(
-      children: _tasks.asMap().entries.map((entry) {
-        final task = entry.value;
-        return _buildTaskItem(task);
-      }).toList(),
-    );
-  }
-
-  Widget _buildTaskItem(Map<String, dynamic> task) {
-    Color bgColor;
-    switch (task['color']) {
-      case 'green':
-        bgColor = AppColors.pastelGreen;
-        break;
-      case 'blue':
-        bgColor = AppColors.pastelBlue;
-        break;
-      default:
-        bgColor = Colors.white;
-    }
-
-    final isDone = task['isDone'] == true;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Timeline dot and line
-        Column(
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: isDone ? AppColors.dark : Colors.transparent,
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.dark, width: 1.5),
-              ),
-            ),
-            Container(
-              width: 1.5,
-              height: 80,
-              color: AppColors.dark.withOpacity(0.2),
-            ),
-          ],
-        ),
-        const SizedBox(width: 16),
-        // Task card
-        Expanded(
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: BorderRadius.circular(16),
-              border: task['color'] == 'white'
-                  ? Border.all(color: AppColors.dark, width: 1.5)
-                  : null,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              task['title'],
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.dark,
-                                decoration: isDone
-                                    ? TextDecoration.lineThrough
-                                    : null,
-                              ),
-                            ),
-                          ),
-                          if (task['tag'] != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.dark.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                task['tag'],
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      if (task['subtitle'] != null) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          task['subtitle'],
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.access_time,
-                            size: 14,
-                            color: AppColors.textSecondary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            task['time'],
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                if (isDone)
+              Row(
+                children: [
                   Container(
-                    padding: const EdgeInsets.all(6),
+                    width: 36,
+                    height: 36,
                     decoration: const BoxDecoration(
-                      color: AppColors.dark,
+                      color: Colors.black,
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
-                      Icons.check,
-                      size: 16,
+                      Icons.visibility_outlined,
                       color: Colors.white,
+                      size: 18,
                     ),
                   ),
-                if (task['color'] == 'blue')
-                  Icon(
-                    Icons.restaurant,
-                    size: 28,
-                    color: AppColors.dark.withOpacity(0.5),
+                  const SizedBox(width: 8),
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      color: Colors.black,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.arrow_outward,
+                      color: Colors.white,
+                      size: 18,
+                    ),
                   ),
-              ],
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Tag
+          const Text(
+            'Community',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+              color: Colors.black54,
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 8),
+          // Title
+          const Text(
+            'Productive routine.',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Read Now Link
+          const Text(
+            'Read Now',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.black54,
+              decoration: TextDecoration.underline,
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Image
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.network(
+              'https://images.unsplash.com/photo-1495195129352-aeb325a55b65?w=800&auto=format&fit=crop',
+              height: 180,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  height: 180,
+                  color: Colors.white.withOpacity(0.5),
+                  child: const Center(
+                    child: Icon(Icons.image, size: 50, color: Colors.black26),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  // === HABITS SECTION ===
-  final List<Map<String, dynamic>> _habits = [
-    {'icon': Icons.water_drop, 'label': 'Water', 'isDone': true},
-    {'icon': Icons.menu_book, 'label': 'Read', 'isDone': true},
-    {'icon': Icons.self_improvement, 'label': 'Stretch', 'isDone': false},
-    {'icon': Icons.directions_walk, 'label': 'Walk', 'isDone': false},
-  ];
-
-  Widget _buildHabitsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'HABITS',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textSecondary,
-            letterSpacing: 1,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: _habits.map((habit) {
-            final isDone = habit['isDone'] == true;
-            return Column(
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: isDone ? AppColors.pastelGreen : Colors.transparent,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isDone
-                          ? AppColors.pastelGreen
-                          : AppColors.textSecondary.withOpacity(0.3),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Icon(
-                    habit['icon'],
-                    color: isDone ? AppColors.dark : AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  habit['label'],
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            );
-          }).toList(),
-        ),
-      ],
-    );
+  // Helper method for month name
+  String _getMonthName(int month) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return months[month - 1];
   }
 
   // === BOTTOM NAVIGATION ===
   Widget _buildBottomNav() {
     return Container(
-      margin: const EdgeInsets.all(20),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.dark,
-        borderRadius: BorderRadius.circular(24),
-      ),
+      width: double.infinity,
+      padding: const EdgeInsets.only(top: 20, bottom: 32, left: 20, right: 20),
+      decoration: const BoxDecoration(color: AppColors.dark),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
@@ -680,7 +589,27 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return GestureDetector(
-      onTap: () => setState(() => _selectedNavIndex = index),
+      onTap: () {
+        if (index == 4) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ProfileScreen()),
+          ).then((_) {
+            _loadUserName();
+          });
+        } else {
+          setState(() => _selectedNavIndex = index);
+        }
+      },
+      onLongPress: () {
+        final labels = ['Home', 'All', 'Timer', 'Flag', 'Profile'];
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(labels[index]),
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      },
       child: Icon(
         icon,
         color: isSelected ? Colors.white : Colors.white.withOpacity(0.5),

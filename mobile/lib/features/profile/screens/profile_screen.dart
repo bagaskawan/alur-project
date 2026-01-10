@@ -80,7 +80,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? _buildSkeletonUI()
           : SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Column(
@@ -576,5 +576,86 @@ class _ProfileScreenState extends State<ProfileScreen> {
       default:
         return "Currently acting as a supportive friend.";
     }
+  }
+
+  Widget _buildSkeletonUI() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        children: [
+          const SizedBox(height: 16),
+          // HEADER SKELETON
+          Column(
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: 150,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: 200,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 32),
+
+          // SECTIONS SKELETON
+          _buildSectionSkeleton(),
+          const SizedBox(height: 24),
+          _buildSectionSkeleton(),
+          const SizedBox(height: 24),
+          _buildSectionSkeleton(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionSkeleton() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 100,
+          height: 16,
+          decoration: BoxDecoration(
+            color: Colors.grey[300],
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          height: 120,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
